@@ -22,10 +22,13 @@
 
 #include "rc_types.h"
 
+/* Names the three physical IR sensors so calls like drv_ir_on_line(ch)
+ * can say which one they mean instead of passing a bare, easy-to-mix-up
+ * number. */
 typedef enum {
-    RC_IR_LINE_L = 0,
-    RC_IR_LINE_R,
-    RC_IR_BARCODE
+    RC_IR_LINE_L = 0,   /* left line sensor */
+    RC_IR_LINE_R,       /* right line sensor */
+    RC_IR_BARCODE       /* barcode sensor (digital DOUT + analogue AOUT) */
 } rc_ir_ch_t;
 
 /*

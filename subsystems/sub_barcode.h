@@ -16,6 +16,12 @@
 
 #include "rc_types.h"
 
+/* This declares "sub_barcode_cb_t" as a name for a FUNCTION POINTER type:
+ * any function that takes (char, rc_nav_cmd_t, void*) and returns nothing
+ * can be assigned to a variable of this type and called through it later.
+ * This is how C lets you "pass a function as data" — used here so any
+ * subsystem can register its own handler for "a barcode was decoded"
+ * without sub_barcode.c needing to know who it is in advance. */
 typedef void (*sub_barcode_cb_t)(char symbol, rc_nav_cmd_t cmd, void *ctx);
 
 rc_result_t sub_barcode_init(void);
