@@ -11,13 +11,13 @@
  *    4. sub_nav last, because it subscribes to all the others' events.
  */
 
-#include <tk/tkernel.h>
+#include "rc_prelude.h"
 #include <tm/tmonitor.h>
-#include <bsp/libbsp.h>
 
 #include "rc_config.h"
 #include "rc_event.h"
 #include "rc_gpioirq.h"
+#include "rc_defer.h"
 #include "rc_time.h"
 
 #include "drv_motor.h"
@@ -111,6 +111,8 @@ EXPORT INT usermain(void)
 
     tm_printf((UB *)"\n=== robotic car: bring-up ===\n");
 
+    /* rc_defer must exist before any driver registers a bottom half. */
+    if (!step("defer",      rc_defer_init()))      { return 1; }
     if (!step("event bus",  rc_event_init()))      { return 1; }
     if (!step("gpio irq",   rc_gpioirq_init()))    { return 1; }
 
@@ -133,6 +135,7 @@ EXPORT INT usermain(void)
     if (!step("nav",       sub_nav_init()))       { return 1; }
 
     /* Housekeeping tasks. */
+    ctsk.exinf   = NULL;
     ctsk.itskpri = RC_PRI_SENSE;
     ctsk.stksz   = RC_STACK_SZ;
     ctsk.task    = sense_task;

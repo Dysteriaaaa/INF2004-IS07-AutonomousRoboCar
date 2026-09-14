@@ -1,9 +1,7 @@
 /*
  *  sub_scan.c
  */
-#include <tk/tkernel.h>
-#include <string.h>
-
+#include "rc_prelude.h"
 #include "sub_scan.h"
 #include "drv_servo.h"
 #include "drv_ultrasonic.h"
@@ -67,7 +65,12 @@ static void build_profile(rc_pl_profile_t *p)
     uint32_t clear_l = 0U;
     uint32_t clear_r = 0U;
 
-    (void)memset(p, 0, sizeof(*p));
+    p->n_points          = 0U;
+    p->closest_angle_deg = 0;
+    p->closest_mm        = 0U;
+    p->width_mm          = 0U;
+    p->clearance_left_mm = 0U;
+    p->clearance_right_mm = 0U;
     p->n_points = (uint8_t)n_points;
 
     for (i = 0U; i < n_points; i++) {
@@ -137,7 +140,9 @@ static void build_profile(rc_pl_profile_t *p)
 
 static void build_plan(const rc_pl_profile_t *p, rc_pl_plan_t *plan)
 {
-    (void)memset(plan, 0, sizeof(*plan));
+    plan->action     = RC_CMD_NONE;
+    plan->lateral_mm = 0U;
+    plan->forward_mm = 0U;
 
     if (p->closest_mm == 0U) {
         plan->action = RC_CMD_GO_STRAIGHT;
@@ -354,7 +359,7 @@ rc_result_t sub_scan_init(void)
     T_CFLG cflg;
     T_CTSK ctsk;
 
-    (void)memset(&cflg, 0, sizeof(cflg));
+    cflg.exinf  = NULL;
     cflg.flgatr = TA_TFIFO | TA_WMUL;
     scan_flgid  = tk_cre_flg(&cflg);
     if (scan_flgid <= E_OK) {
@@ -363,7 +368,7 @@ rc_result_t sub_scan_init(void)
 
     (void)drv_ultrasonic_on_result(on_range, NULL);
 
-    (void)memset(&ctsk, 0, sizeof(ctsk));
+    ctsk.exinf   = NULL;
     ctsk.itskpri = RC_PRI_SENSE;
     ctsk.stksz   = RC_STACK_SZ;
     ctsk.task    = scan_task;

@@ -1,6 +1,7 @@
 /*
  *  sub_line.c
  */
+#include "rc_prelude.h"
 #include "sub_line.h"
 #include "sub_motion.h"
 #include "rc_config.h"

@@ -1,6 +1,7 @@
 /*
  *  drv_servo.c
  */
+#include "rc_prelude.h"
 #include "drv_servo.h"
 #include "rc_config.h"
 #include "rc_pwm.h"

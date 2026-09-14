@@ -1,6 +1,7 @@
 /*
  *  sub_terrain.c
  */
+#include "rc_prelude.h"
 #include "sub_terrain.h"
 #include "drv_imu.h"
 #include "drv_encoder.h"

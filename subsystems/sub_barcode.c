@@ -1,8 +1,7 @@
 /*
  *  sub_barcode.c
  */
-#include <string.h>
-
+#include "rc_prelude.h"
 #include "sub_barcode.h"
 #include "drv_ir.h"
 #include "rc_config.h"
@@ -230,7 +229,12 @@ static void on_edge(const rc_event_t *evt, void *ctx)
 
 rc_result_t sub_barcode_init(void)
 {
-    (void)memset(widths, 0, sizeof(widths));
+    {
+        uint32_t i;
+        for (i = 0U; i < WINDOW; i++) {
+            widths[i] = 0U;
+        }
+    }
     n_widths    = 0U;
     armed       = false;
     last_symbol = '\0';

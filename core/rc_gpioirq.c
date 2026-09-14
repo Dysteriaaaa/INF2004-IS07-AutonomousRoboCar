@@ -11,10 +11,7 @@
  *  bit 2 edge low, bit 3 edge high. Eight pins per 32 bit register.
  */
 
-#include <tk/tkernel.h>
-#include <tk/syslib.h>
-#include <string.h>
-
+#include "rc_prelude.h"
 #include "rc_gpioirq.h"
 #include "rc_config.h"
 #include "rc_time.h"
@@ -42,6 +39,10 @@ typedef struct {
 } pin_entry_t;
 
 static pin_entry_t pins[PIN_MAX];
+
+/* One bit per INTS register that has at least one registered pin, so the
+ * handler can skip registers nobody is using. */
+static volatile uint8_t reg_used[4];
 
 /* ------------------------------------------------------------------ *
  *  Helpers
@@ -86,33 +87,55 @@ static void gpio_bank0_handler(UINT intno)
     uint32_t pin;
     uint32_t shift;
     uint32_t fired;
+    uint32_t pending;
 
     (void)intno;
 
+    /*
+     *  Only the registers that actually have a registered pin are read,
+     *  and within one register only the bits that fired are visited. The
+     *  earlier version walked all 8 pin slots of all 4 registers on every
+     *  interrupt, which is 32 iterations to service one encoder edge.
+     *
+     *  The timestamp is taken once at entry so every pin in the same batch
+     *  shares a consistent time.
+     */
     for (reg = 0U; reg < 4U; reg++) {
+        if (reg_used[reg] == 0U) {
+            continue;
+        }
         status = in_w(IO_PROC0_INTS(reg));
         if (status == 0U) {
             continue;
         }
 
-        for (pin = reg * 8U; pin < ((reg * 8U) + 8U); pin++) {
-            if (pin >= PIN_MAX) {
-                break;
+        /* Collapse the 4-bit-per-pin edge fields to one bit per pin. */
+        pending = 0U;
+        for (pin = 0U; pin < 8U; pin++) {
+            if (((status >> (pin * 4U)) & 0xCU) != 0U) {
+                pending |= (1U << pin);
             }
-            shift = pin_field_shift(pin);
-            fired = (status >> shift) & 0xCU;   /* both edge bits */
+        }
 
-            if (fired == 0U) {
-                continue;
-            }
+        while (pending != 0U) {
+            pin   = (uint32_t)__builtin_ctz(pending);
+            pending &= ~(1U << pin);
+
+            shift = pin * 4U;
+            fired = (status >> shift) & 0xCU;
 
             /* Acknowledge before calling out, so an edge arriving during
-             * the callback is not lost. */
+             * the handler is not lost. */
             out_w(IO_INTR(reg), fired << shift);
 
-            if (pins[pin].in_use && (pins[pin].cb != NULL)) {
-                bool level = (gpio_get_val(pin) != 0U);
-                pins[pin].cb(pin, level, t_us, pins[pin].ctx);
+            {
+                uint32_t gp = (reg * 8U) + pin;
+
+                if ((gp < PIN_MAX) && pins[gp].in_use
+                    && (pins[gp].cb != NULL)) {
+                    bool level = (gpio_get_val(gp) != 0U);
+                    pins[gp].cb(gp, level, t_us, pins[gp].ctx);
+                }
             }
         }
     }
@@ -130,7 +153,14 @@ rc_result_t rc_gpioirq_init(void)
     ER     er;
     uint32_t reg;
 
-    (void)memset(pins, 0, sizeof(pins));
+    for (reg = 0U; reg < 4U; reg++) {
+        reg_used[reg] = 0U;
+    }
+    for (reg = 0U; reg < PIN_MAX; reg++) {
+        pins[reg].in_use = false;
+        pins[reg].cb     = NULL;
+        pins[reg].ctx    = NULL;
+    }
 
     /* Mask everything before claiming the vector. */
     for (reg = 0U; reg < 4U; reg++) {
@@ -138,7 +168,6 @@ rc_result_t rc_gpioirq_init(void)
         out_w(IO_INTR(reg), 0xFFFFFFFFU);
     }
 
-    (void)memset(&dint, 0, sizeof(dint));
     dint.intatr = TA_HLNG;
     dint.inthdr = gpio_bank0_handler;
 
@@ -186,6 +215,7 @@ rc_result_t rc_gpioirq_attach(uint32_t pin,
     pins[pin].ctx    = ctx;
     pins[pin].edges  = (uint8_t)edges;
     pins[pin].in_use = true;
+    reg_used[pin_reg_index(pin)] = 1U;
     EI(sts);
 
     return rc_gpioirq_enable(pin, true);

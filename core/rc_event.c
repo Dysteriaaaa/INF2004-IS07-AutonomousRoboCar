@@ -10,10 +10,8 @@
  *  gives an ISR-safe publish that always returns in bounded time.
  */
 
-#include <tk/tkernel.h>
+#include "rc_prelude.h"
 #include <tm/tmonitor.h>
-#include <string.h>
-
 #include "rc_event.h"
 #include "rc_config.h"
 #include "rc_time.h"
@@ -33,6 +31,9 @@
 
 #if TK_SUPPORT_SMP
 static T_SPLOCK ring_lock;
+/* NOTE: sts must be UINT, not uint32_t. ISpinLock takes UINT*, and on
+ * arm-none-eabi uint32_t is 'long unsigned int' - same width, incompatible
+ * pointer type. This only shows up in the SMP=1 build. */
 #define RC_LOCK(sts)      ((void)ISpinLock(&ring_lock, &(sts)))
 #define RC_UNLOCK(sts)    ((void)ISpinUnlock(&ring_lock, (sts)))
 #else
@@ -105,7 +106,7 @@ static bool ring_pop(lane_t *ln, rc_event_t *out)
 
 static rc_result_t publish_common(rc_event_t *evt)
 {
-    uint32_t    sts;
+    UINT        sts;
     uint8_t     mask;
     rc_result_t res = RC_OK;
     uint32_t    i;
@@ -164,7 +165,7 @@ int32_t rc_event_subscribe(rc_evt_id_t id,
 {
     lane_t  *ln;
     uint32_t i;
-    uint32_t sts;
+    UINT     sts;
 
     if ((id >= RC_EVT_COUNT) || (lane >= RC_LANE_COUNT) || (cb == NULL)) {
         return -1;
@@ -195,7 +196,7 @@ rc_result_t rc_event_unsubscribe(int32_t handle)
     uint32_t lane;
     uint32_t slot;
     uint32_t i;
-    uint32_t sts;
+    UINT     sts;
     bool     still_used = false;
     lane_t  *ln;
 
@@ -251,7 +252,7 @@ uint32_t rc_event_dropped(rc_lane_t lane)
 static void dispatch_lane(lane_t *ln)
 {
     rc_event_t evt;
-    uint32_t   sts;
+    UINT       sts;
     uint32_t   i;
     bool       got;
 
@@ -307,11 +308,23 @@ rc_result_t rc_event_init(void)
     (void)InitSpinLock(&ring_lock);
 #endif
 
-    (void)memset(lanes, 0, sizeof(lanes));
-    (void)memset((void *)lane_mask, 0, sizeof(lane_mask));
+    for (i = 0U; i < (uint32_t)RC_LANE_COUNT; i++) {
+        uint32_t j;
+        lanes[i].head    = 0U;
+        lanes[i].tail    = 0U;
+        lanes[i].dropped = 0U;
+        for (j = 0U; j < RC_EVENT_MAX_SUBS; j++) {
+            lanes[i].subs[j].in_use = false;
+            lanes[i].subs[j].cb     = NULL;
+            lanes[i].subs[j].ctx    = NULL;
+        }
+    }
+    for (i = 0U; i < (uint32_t)RC_EVT_COUNT; i++) {
+        lane_mask[i] = 0U;
+    }
 
     for (i = 0U; i < (uint32_t)RC_LANE_COUNT; i++) {
-        (void)memset(&cflg, 0, sizeof(cflg));
+        cflg.exinf   = NULL;
         cflg.flgatr  = TA_TFIFO | TA_WMUL;
         cflg.iflgptn = 0;
 
@@ -320,7 +333,6 @@ rc_result_t rc_event_init(void)
             return RC_ERR_HARDWARE;
         }
 
-        (void)memset(&ctsk, 0, sizeof(ctsk));
         ctsk.itskpri = lane_pri[i];
         ctsk.stksz   = RC_STACK_SZ;
         ctsk.task    = dispatcher_task;

@@ -1,12 +1,11 @@
 /*
  *  sub_telemetry.c
  */
-#include <tk/tkernel.h>
+#include "rc_prelude.h"
 #include <tm/tmonitor.h>
-#include <string.h>
-#include <stdio.h>
 
 #include "sub_telemetry.h"
+#include "rc_fmt.h"
 #include "sub_terrain.h"
 #include "sub_barcode.h"
 #include "drv_motor.h"
@@ -99,9 +98,9 @@ static rc_result_t send(const char *leaf, const char *payload)
         return RC_ERR_STATE;
     }
 
-    (void)snprintf(topic, sizeof(topic), "%s/%s", TOPIC_BASE, leaf);
+    (void)rc_snprintf(topic, sizeof(topic), "%s/%s", TOPIC_BASE, leaf);
 
-    res = sink->publish(topic, payload, (uint16_t)strlen(payload));
+    res = sink->publish(topic, payload, (uint16_t)rc_strlen(payload));
     if (res == RC_OK) {
         tx_count++;
     } else {
@@ -114,7 +113,7 @@ static void publish_state(void)
 {
     char buf[PAYLOAD_MAX];
 
-    (void)snprintf(buf, sizeof(buf),
+    (void)rc_snprintf(buf, sizeof(buf),
         "{\"seq\":%lu,\"t\":%lu,\"spd_l\":%ld,\"spd_r\":%ld,"
         "\"dist\":%lu,\"m_l\":%d,\"m_r\":%d,\"line\":\"%c%c\","
         "\"cls\":%d,\"peak\":%u,\"bc\":\"%c\"}",
@@ -139,7 +138,7 @@ static void publish_heartbeat(void)
 {
     char buf[PAYLOAD_MAX];
 
-    (void)snprintf(buf, sizeof(buf),
+    (void)rc_snprintf(buf, sizeof(buf),
         "{\"up\":%lu,\"tx\":%lu,\"fail\":%lu,"
         "\"drop_fast\":%lu,\"drop_slow\":%lu,\"sink\":\"%s\"}",
         (unsigned long)rc_time_ms(),
@@ -184,7 +183,7 @@ rc_result_t sub_telemetry_publish_event(const rc_event_t *evt)
 
     switch (evt->id) {
     case RC_EVT_BARCODE_DECODED:
-        (void)snprintf(buf, sizeof(buf),
+        (void)rc_snprintf(buf, sizeof(buf),
             "{\"sym\":\"%c\",\"cmd\":%d,\"rev\":%d}",
             evt->u.barcode.symbol,
             (int)evt->u.barcode.command,
@@ -192,7 +191,7 @@ rc_result_t sub_telemetry_publish_event(const rc_event_t *evt)
         return send("barcode", buf);
 
     case RC_EVT_HUMP_END:
-        (void)snprintf(buf, sizeof(buf),
+        (void)rc_snprintf(buf, sizeof(buf),
             "{\"peak_mm\":%u,\"ms\":%lu,\"pitch\":%d}",
             (unsigned int)evt->u.hump.peak_mm,
             (unsigned long)evt->u.hump.duration_ms,
@@ -200,7 +199,7 @@ rc_result_t sub_telemetry_publish_event(const rc_event_t *evt)
         return send("hump", buf);
 
     case RC_EVT_OBSTACLE_PROFILE:
-        (void)snprintf(buf, sizeof(buf),
+        (void)rc_snprintf(buf, sizeof(buf),
             "{\"n\":%u,\"near_mm\":%u,\"at_deg\":%d,\"w_mm\":%u,"
             "\"cl_l\":%u,\"cl_r\":%u}",
             (unsigned int)evt->u.profile.n_points,
@@ -269,7 +268,7 @@ rc_result_t sub_telemetry_init(void)
                              on_notable, NULL);
     (void)rc_event_subscribe(RC_EVT_IMPACT, RC_LANE_SLOW, on_notable, NULL);
 
-    (void)memset(&ctsk, 0, sizeof(ctsk));
+    ctsk.exinf   = NULL;
     ctsk.itskpri = RC_PRI_TELEMETRY;
     ctsk.stksz   = RC_STACK_SZ;
     ctsk.task    = telemetry_task;

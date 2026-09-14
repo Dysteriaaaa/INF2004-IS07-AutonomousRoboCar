@@ -1,15 +1,12 @@
 /*
  *  drv_ultrasonic.c
  */
-#include <tk/tkernel.h>
-#include <tk/syslib.h>
-#include <bsp/libbsp.h>
-#include <string.h>
-
+#include "rc_prelude.h"
 #include "drv_ultrasonic.h"
 #include "rc_config.h"
 #include "rc_gpioirq.h"
 #include "rc_event.h"
+#include "rc_defer.h"
 #include "rc_time.h"
 
 /* RP2040 TIMER alarm interrupts are IRQ 0..3. */
@@ -42,6 +39,12 @@ static volatile uint32_t      t_rise;
 static volatile int16_t       tag_angle;
 static drv_ultra_cb_t         user_cb;
 static void                  *user_ctx;
+static int32_t                defer_h = -1;
+
+/* Set by an ISR, consumed by the bottom half. */
+static volatile uint32_t      result_width_us;
+static volatile bool          result_valid;
+static volatile bool          result_ready;
 
 /* ------------------------------------------------------------------ *
  *  TIMER alarm helpers
@@ -66,27 +69,62 @@ static void alarm_cancel(uint32_t n)
  *  Completion, shared by the success and timeout paths
  * ------------------------------------------------------------------ */
 
-static void finish(uint32_t width_us, bool valid)
+/*
+ *  ISR side. Records the outcome and asks for a bottom half. The
+ *  division that turns microseconds into millimetres, the event publish
+ *  and the user callback all happen in ultra_drain, not here.
+ *
+ *  The two register operations that CANNOT be deferred stay: masking the
+ *  echo pin and disarming the timeout. Leaving the echo unmasked for the
+ *  length of a task hop would let a ringing 5 V divider generate spurious
+ *  edges that the state machine would then have to filter.
+ */
+static void finish_i(uint32_t width_us, bool valid)
+{
+    (void)rc_gpioirq_enable(RC_PIN_ULTRA_ECHO, false);
+    alarm_cancel(ALARM_TMO);
+
+    result_width_us = width_us;
+    result_valid    = valid;
+    result_ready    = true;
+    state           = ST_IDLE;
+
+    rc_defer_signal_i(defer_h);
+}
+
+/* ------------------------------------------------------------------ *
+ *  Bottom half. Task context.
+ * ------------------------------------------------------------------ */
+
+static void ultra_drain(void *ctx)
 {
     rc_event_t evt;
     uint32_t   mm = 0U;
+    uint32_t   width;
+    bool       valid;
+
+    (void)ctx;
+
+    if (!result_ready) {
+        return;
+    }
+    result_ready = false;
+
+    width = result_width_us;
+    valid = result_valid;
 
     if (valid) {
-        mm = US_TO_MM(width_us);
+        mm = US_TO_MM(width);
         if ((mm > RC_ULTRA_MAX_MM) || (mm < RC_ULTRA_MIN_MM)) {
-            valid = false;                  /* out of the module's range */
+            valid = false;              /* out of the module's range */
         }
     }
-
-    (void)rc_gpioirq_enable(RC_PIN_ULTRA_ECHO, false);
-    alarm_cancel(ALARM_TMO);
-    state = ST_IDLE;
 
     evt.id = RC_EVT_ULTRA_RESULT;
     evt.u.ultra.angle_deg = tag_angle;
     evt.u.ultra.range_mm  = (uint16_t)mm;
     evt.u.ultra.valid     = valid;
-    (void)rc_event_publish_i(&evt);
+    (void)rc_event_publish(&evt);
 
     if (user_cb != NULL) {
         user_cb((uint16_t)mm, valid, user_ctx);
@@ -121,7 +159,7 @@ static void timeout_handler(UINT intno)
     out_w(TIMER_INTR, (1U << ALARM_TMO));
 
     if (state != ST_IDLE) {
-        finish(0U, false);
+        finish_i(0U, false);
     }
     EndOfInt(INTNO_TIMER_2);
 }
@@ -135,7 +173,7 @@ static void echo_isr(uint32_t pin, bool level, uint32_t t_us, void *ctx)
         t_rise = t_us;
         state  = ST_WAIT_FALL;
     } else if ((state == ST_WAIT_FALL) && !level) {
-        finish(t_us - t_rise, true);
+        finish_i(t_us - t_rise, true);
     } else {
         /* Spurious edge, ignore. Happens on a noisy 5 V divider. */
     }
@@ -149,6 +187,11 @@ rc_result_t drv_ultrasonic_init(void)
 {
     T_DINT      dint;
     rc_result_t res;
+
+    defer_h = rc_defer_register(ultra_drain, NULL);
+    if (defer_h < 0) {
+        return RC_ERR_NOSPACE;
+    }
 
     (void)gpio_set_pin(RC_PIN_ULTRA_TRIG, GPIO_MODE_OUT);
     (void)gpio_set_val(RC_PIN_ULTRA_TRIG, 0U);
@@ -164,7 +207,6 @@ rc_result_t drv_ultrasonic_init(void)
     }
     (void)rc_gpioirq_enable(RC_PIN_ULTRA_ECHO, false);
 
-    (void)memset(&dint, 0, sizeof(dint));
     dint.intatr = TA_HLNG;
     dint.inthdr = trig_done_handler;
     if (tk_def_int(INTNO_TIMER_1, &dint) != E_OK) {

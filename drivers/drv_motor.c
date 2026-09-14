@@ -1,6 +1,7 @@
 /*
  *  drv_motor.c
  */
+#include "rc_prelude.h"
 #include "drv_motor.h"
 #include "rc_config.h"
 #include "rc_pwm.h"

@@ -84,6 +84,7 @@
  *  Task priorities. Lower number wins in micro T-Kernel.
  * ------------------------------------------------------------------ */
 
+#define RC_PRI_DEFER            (4)   /* bottom halves, above all */
 #define RC_PRI_DISPATCH_FAST    (5)
 #define RC_PRI_MOTION           (6)
 #define RC_PRI_SENSE            (7)

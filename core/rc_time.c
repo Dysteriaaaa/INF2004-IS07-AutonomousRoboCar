@@ -2,7 +2,7 @@
  *  rc_time.c
  */
 
-#include <tk/tkernel.h>
+#include "rc_prelude.h"
 #include "rc_time.h"
 
 /* TIMER_TIMERAWL, the raw low word, is defined in the port's sysdef.h.

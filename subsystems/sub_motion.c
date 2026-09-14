@@ -1,9 +1,7 @@
 /*
  *  sub_motion.c
  */
-#include <tk/tkernel.h>
-#include <string.h>
-
+#include "rc_prelude.h"
 #include "sub_motion.h"
 #include "drv_motor.h"
 #include "drv_encoder.h"
@@ -238,7 +236,7 @@ rc_result_t sub_motion_init(void)
 
     mode = MODE_IDLE;
 
-    (void)memset(&ctsk, 0, sizeof(ctsk));
+    ctsk.exinf   = NULL;
     ctsk.itskpri = RC_PRI_MOTION;
     ctsk.stksz   = RC_STACK_SZ;
     ctsk.task    = motion_task;

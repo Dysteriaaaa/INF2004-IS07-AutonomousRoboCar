@@ -1,9 +1,8 @@
 /*
  *  sub_nav.c
  */
-#include <tk/tkernel.h>
+#include "rc_prelude.h"
 #include <tm/tmonitor.h>
-
 #include "sub_nav.h"
 #include "sub_line.h"
 #include "sub_barcode.h"

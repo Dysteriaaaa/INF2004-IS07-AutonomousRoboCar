@@ -1,14 +1,12 @@
 /*
  *  drv_ir.c
  */
-#include <tk/tkernel.h>
-#include <tk/syslib.h>
-#include <bsp/libbsp.h>
-
+#include "rc_prelude.h"
 #include "drv_ir.h"
 #include "rc_config.h"
 #include "rc_gpioirq.h"
 #include "rc_event.h"
+#include "rc_defer.h"
 #include "rc_time.h"
 
 /*
@@ -26,6 +24,25 @@ static drv_ir_edge_cb_t bar_cb;
 static void            *bar_ctx;
 static volatile uint32_t bar_last_us;
 static volatile bool     bar_enabled;
+static int32_t           defer_h = -1;
+
+/*
+ *  Edge ring. Single producer (the ISR), single consumer (the bottom
+ *  half), power of two, so head and tail need no lock as long as each
+ *  side only writes its own index.
+ */
+#define BAR_RING_SZ     (32U)
+#define BAR_RING_MASK   (BAR_RING_SZ - 1U)
+
+typedef struct {
+    uint32_t width_us;
+    bool     level;
+} bar_edge_rec_t;
+
+static bar_edge_rec_t    bar_ring[BAR_RING_SZ];
+static volatile uint32_t bar_head;
+static volatile uint32_t bar_tail;
+static volatile uint32_t bar_overrun;
 
 /* ------------------------------------------------------------------ *
  *  Barcode edge ISR
@@ -33,8 +50,8 @@ static volatile bool     bar_enabled;
 
 static void barcode_isr(uint32_t pin, bool level, uint32_t t_us, void *ctx)
 {
-    uint32_t   width;
-    rc_event_t evt;
+    uint32_t width;
+    uint32_t next;
 
     (void)pin;
     (void)ctx;
@@ -43,17 +60,58 @@ static void barcode_isr(uint32_t pin, bool level, uint32_t t_us, void *ctx)
         return;
     }
 
+    /*
+     *  One subtraction, one store into the ring, one index bump, one
+     *  tk_set_flg. The decoder does not run here.
+     *
+     *  Bar width IS the data for Code 39, so the timestamp this handler
+     *  was given must not be delayed by work that could happen later.
+     */
     width       = t_us - bar_last_us;
     bar_last_us = t_us;
 
-    evt.id = RC_EVT_BARCODE_EDGE;
-    evt.u.bar_edge.level_high = level;
-    evt.u.bar_edge.width_us   = width;
-    (void)rc_event_publish_i(&evt);
-
-    if (bar_cb != NULL) {
-        bar_cb(level, width, bar_ctx);
+    next = (bar_head + 1U) & BAR_RING_MASK;
+    if (next == bar_tail) {
+        bar_overrun++;      /* decoder is not keeping up, count it */
+        return;
     }
+
+    bar_ring[bar_head].width_us = width;
+    bar_ring[bar_head].level    = level;
+    bar_head = next;
+
+    rc_defer_signal_i(defer_h);
+}
+
+/* ------------------------------------------------------------------ *
+ *  Bottom half. Publishes one event per buffered edge, in order.
+ * ------------------------------------------------------------------ */
+
+static void barcode_drain(void *ctx)
+{
+    rc_event_t     evt;
+    bar_edge_rec_t rec;
+
+    (void)ctx;
+
+    while (bar_tail != bar_head) {
+        rec      = bar_ring[bar_tail];
+        bar_tail = (bar_tail + 1U) & BAR_RING_MASK;
+
+        evt.id = RC_EVT_BARCODE_EDGE;
+        evt.u.bar_edge.level_high = rec.level;
+        evt.u.bar_edge.width_us   = rec.width_us;
+        (void)rc_event_publish(&evt);
+
+        if (bar_cb != NULL) {
+            bar_cb(rec.level, rec.width_us, bar_ctx);
+        }
+    }
+}
+
+uint32_t drv_ir_barcode_overruns(void)
+{
+    return bar_overrun;
 }
 
 /* ------------------------------------------------------------------ *
@@ -63,6 +121,11 @@ static void barcode_isr(uint32_t pin, bool level, uint32_t t_us, void *ctx)
 rc_result_t drv_ir_init(void)
 {
     rc_result_t res;
+
+    defer_h = rc_defer_register(barcode_drain, NULL);
+    if (defer_h < 0) {
+        return RC_ERR_NOSPACE;
+    }
 
     /* Line sensors: plain inputs, polled. The comparator output is a
      * push-pull drive on both modules, so no pull is needed. */
@@ -189,6 +252,8 @@ rc_result_t drv_ir_barcode_enable(bool on)
 {
     if (on) {
         bar_last_us = rc_time_us();
+        bar_head    = 0U;
+        bar_tail    = 0U;
     }
     bar_enabled = on;
     return rc_gpioirq_enable(RC_PIN_IR_BARCODE_D, on);

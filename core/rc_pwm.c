@@ -2,9 +2,7 @@
  *  rc_pwm.c
  */
 
-#include <tk/tkernel.h>
-#include <bsp/libbsp.h>
-
+#include "rc_prelude.h"
 #include "rc_pwm.h"
 #include "rc_config.h"
 

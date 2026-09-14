@@ -1,9 +1,8 @@
 /*
  *  drv_imu.c
  */
-#include <tk/tkernel.h>
-#include <string.h>
-
+#include "rc_prelude.h"
+#include <dev_i2c.h>
 #include "drv_imu.h"
 #include "rc_config.h"
 #include "rc_event.h"

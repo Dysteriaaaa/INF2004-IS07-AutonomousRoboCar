@@ -53,4 +53,7 @@ rc_result_t drv_ir_on_barcode_edge(drv_ir_edge_cb_t cb, void *ctx);
  * Masking when idle keeps a shiny patch of track from flooding the bus. */
 rc_result_t drv_ir_barcode_enable(bool on);
 
+/* Edges dropped because the decoder could not keep up. Should stay 0. */
+uint32_t drv_ir_barcode_overruns(void);
+
 #endif /* DRV_IR_H */
