@@ -49,7 +49,18 @@ drivers/      one module per physical device
 subsystems/   one module per team member, plus the mission state machine
 app/          usermain and housekeeping tasks
 docs/         HARDWARE.md - read this for wiring and setup
+TEAM_GUIDE.md - beginner-friendly, per-buddy build/flash steps and a
+               line-by-line code walkthrough of every subsystem and driver
 ```
+
+`TEAM_GUIDE.md` is the onboarding document for team members with no prior
+C or embedded background: it explains the event bus, the non-blocking
+pattern and the mission state machine in plain language, then gives each
+"Buddy" a getting-started checklist, a function-by-function code
+walkthrough, and their module's TODO list. Every subsystem and driver
+source file also carries matching inline comments aimed at the same
+audience. Point someone here before re-explaining project basics from
+scratch.
 
 | Module | Owner | Responsibility |
 |---|---|---|

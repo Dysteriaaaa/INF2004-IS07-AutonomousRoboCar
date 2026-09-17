@@ -376,6 +376,88 @@ is deliberately small so that when something doesn't work, you know
 exactly which piece to suspect — testing everything at once means a
 single bad wire could be hiding anywhere.
 
+#### 0.5.8 Already comfortable with the VS Code Raspberry Pi Pico extension? Start here instead
+
+If you've already made a Pico project with the official **Raspberry Pi
+Pico VS Code extension** (the one with "New C/C++ Project", "Compile
+Project" and "Run Project (USB)" buttons), you already know how to build
+and flash *a* Pico project — but that extension's buttons assume a
+**Pico SDK + CMake + Ninja** project (a `CMakeLists.txt` file, the
+extension's own build folder, etc.). **This project has none of that.**
+It's built by the RTOS's own hand-written `Makefile`s instead — no CMake,
+no Ninja, no `CMakeLists.txt` anywhere in this tree. So the extension's
+one-click buttons simply won't find anything to build here, and that's
+expected, not a sign something's broken. Here's how what you already know
+maps onto this project:
+
+- **"Where's my toolchain?"** You don't need to reinstall
+  `arm-none-eabi-gcc` — the Pico extension already installed one for you,
+  under `%USERPROFILE%\.pico-sdk\toolchain\<version>\bin\` on Windows
+  (the extension keeps its own private copies of the compiler, CMake,
+  Ninja, OpenOCD and `picotool`, one versioned folder per tool, so it
+  never depends on anything being on your system `PATH`). First check
+  whether it's already reachable from a plain terminal:
+  ```sh
+  arm-none-eabi-gcc --version
+  ```
+  If that works, you're done — skip straight to §0.5.2. If it says
+  "command not found," either add that `bin` folder to your `PATH`, or
+  open the **"Pico - Developer Command Prompt"** shortcut the extension
+  adds to your Start Menu — it's a terminal window pre-configured with
+  every one of those tool paths already set, and it works fine for typing
+  the `make` commands below even though this isn't a CMake project.
+- **Instead of "New C/C++ Project from Pico SDK,"** follow §0.5.2/§0.5.3
+  above: clone the `mtk3smp-rp2040` RTOS port repo, drop this project's
+  folder into it, and apply the two hardware patches. There's no
+  extension wizard for this step — it's just `git clone` and copying a
+  folder.
+- **Instead of clicking "Compile Project,"** open a terminal (the Pico
+  Developer Command Prompt above, or VS Code's own integrated terminal —
+  ``Ctrl+` ``) in the `mtk3smp-rp2040/build_make` folder and run
+  `make -j8`, exactly as in §0.5.4. It's the same compiler under the
+  hood, just driven by a `Makefile` instead of the extension's CMake
+  integration.
+- **Instead of clicking "Run Project (USB),"** which uses `picotool`/CMake
+  wiring that doesn't exist in this tree, either **drag-and-drop the
+  `.uf2` file onto the `RPI-RP2` drive** in BOOTSEL mode as described in
+  §0.5.5, or, if `picotool` is already on your `PATH` from the extension
+  install, you can flash from the terminal instead once the Pico is in
+  BOOTSEL mode:
+  ```sh
+  picotool load -f build_make/mtk3pico_smp0_uart.uf2
+  picotool reboot
+  ```
+  Either way gets you the same result — there just isn't a single button
+  for it here.
+- **Instead of the extension's built-in Serial Monitor panel** — that
+  panel watches the Pico's *own* USB port, which by default carries
+  nothing on this project, because the console defaults to a separate
+  UART on GP0/GP1 (see §0.5.6) rather than USB. You have two options:
+  1. Wire a USB-serial adapter to GP0/GP1 as described in §0.5.6, and
+     point any serial tool (including the extension's Serial Monitor
+     panel — it isn't picky about *which* COM port you select) at that
+     adapter's COM port instead of the Pico's own one, at 115200 baud.
+  2. **Or**, since you already have the Pico SDK installed locally (the
+     extension put it under `%USERPROFILE%\.pico-sdk\sdk\<version>\`),
+     rebuild with the console routed over the Pico's own USB port
+     instead of a separate UART:
+     ```sh
+     make CONSOLE=usb_cdc PICO_SDK_PATH=C:/Users/<you>/.pico-sdk/sdk/<version> -j8
+     ```
+     Flash the resulting `.uf2` the same way as above. Now the Pico
+     shows up as a normal USB-serial device the moment it boots, and the
+     extension's own Serial Monitor panel (or any serial tool) will work
+     against that port with no extra adapter needed — this is the closest
+     this project gets to the one-cable, no-extra-hardware experience the
+     extension normally gives you. The only catch: per `docs/HARDWARE.md`
+     §4.1 this is the one part of the RTOS port explicitly flagged as
+     **less battle-tested** than the UART path, so if console output ever
+     looks flaky, fall back to a real UART adapter (option 1) to rule
+     that out before assuming your own code is at fault.
+
+Everything after this point — bring-up order, per-buddy work — is
+identical no matter which path you used to get the `.uf2` flashed.
+
 ---
 
 ## 1. Roles at a glance
@@ -3381,6 +3463,28 @@ when a watch reading is close enough to escalate into a real
 
 ## 2. Cross-cutting notes (everyone should skim)
 
+- **No ISR in this codebase calls `tm_printf`/`rc_snprintf`/any print
+  function, and none should.** This was checked across every interrupt
+  handler in the tree (`encoder_isr`, `timeout_handler`, `barcode_isr`,
+  `trig_done_handler`, `echo_isr`, `gpio_bank0_handler`) — all of the
+  `tm_printf` calls in the codebase live in ordinary tasks (`app_main.c`'s
+  startup sequence, `sub_nav.c`'s state-change logging, and
+  `sub_telemetry.c`'s console sink), never inside an ISR. Why this
+  matters: printing text is *slow* — even this project's small
+  `rc_snprintf` (see §0 and Buddy 1's walkthrough) has to walk the whole
+  format string and write out each character, and `tm_printf` on top of
+  that waits on the UART/USB hardware to actually send the bytes. An ISR
+  is only allowed a handful of microseconds (see the interrupt rule in
+  `SKILL.md`) before it starts blocking the other interrupts sharing its
+  vector — the two encoder pins, the ultrasonic echo pin and the barcode
+  pin all currently share one. A `tm_printf` call inside any of those
+  handlers would very likely corrupt a barcode reading or drop an encoder
+  tick on the very next interrupt. **If you're ever debugging and tempted
+  to add a print statement inside an ISR to see what's happening, don't**
+  — instead, either print from the "bottom half" task the ISR hands off
+  to (e.g. `encoder_drain`, `ultra_drain`, `barcode_drain` — these already
+  run in task context and are safe to print from), or record the value
+  into a variable the ISR already has and read it back later from a task.
 - **Every pin lives in `core/rc_config.h`, nowhere else.** If you find a
   bare GPIO number in a `.c` file, that's a bug — fix it by adding a named
   constant there instead.
