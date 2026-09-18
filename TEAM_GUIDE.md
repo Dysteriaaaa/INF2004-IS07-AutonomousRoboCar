@@ -4,9 +4,11 @@ Welcome. This guide exists so that **anyone on the team — even with zero
 embedded-systems or C background — can open it and know exactly what to do
 next.** It is organized by role ("Buddy 1" through "Buddy 5"), matching the
 ownership table in the [README](README.md) and [SKILL.md](SKILL.md). Read
-your own section fully before touching code. Skim the "Shared Foundations"
-section too — it explains the plumbing every module sits on top of, and you
-will bump into it no matter which piece you own.
+your own section fully before touching code. Skim §0 too — §0.2 explains the
+event bus and §0.6 walks through every file in `core/`, the plumbing every
+module sits on top of; you will bump into it no matter which piece you own.
+Each Buddy section then opens with a "How your files connect" table showing
+exactly which `core/` services and which other buddies' files yours talk to.
 
 If anything here disagrees with `docs/HARDWARE.md`, trust `docs/HARDWARE.md`
 — it is the most detailed and most frequently updated source on wiring and
@@ -34,7 +36,7 @@ work.
 ### 0.1 Folders — where does my code live?
 
 ```
-core/         the plumbing everyone shares (event bus, timing, interrupts, PWM)
+core/         the plumbing everyone shares (event bus, timing, interrupts, PWM) — see §0.6
 drivers/      one file per physical part (motor, encoder, servo, ultrasonic sensor, IR sensor, IMU)
 subsystems/   one file per team member's "job", plus the shared mission logic
 app/          the startup code that wires everything together and boots the car
@@ -460,6 +462,312 @@ identical no matter which path you used to get the `.uf2` flashed.
 
 ---
 
+### 0.6 The `core/` toolbox — the nine shared files and who plugs into them
+
+**First, a common confusion cleared up.** Two separate piles of code end up
+on the Pico:
+
+- **The RTOS port** (`mtk3smp-rp2040`, written by our lecturer). This is
+  the *operating system*: it knows how to start the chip, run several
+  tasks "at once", and provides every function whose name starts with
+  `tk_` (`tk_cre_tsk`, `tk_wai_flg`, `tk_dly_tsk`…) or `tm_`
+  (`tm_printf`). We never edit it — we only apply the two small patches
+  from §0.5.3.
+- **This project** (`core/`, `drivers/`, `subsystems/`, `app/`). Every
+  file here was written by us for this car. Nothing in it is copied from
+  the RTOS.
+
+`core/` is the part of *our* code that everyone else's code leans on. Think
+of it as the toolbox in the middle of the workshop: it doesn't build the
+car, but every buddy reaches into it. It wraps the raw Pico chip and the
+RTOS into a handful of simple services (a stopwatch, a doorbell
+switchboard, a notice board, a dimmer switch…) so that the drivers and
+subsystems can be written in plain terms like "publish this event" or "set
+this pin to 40% power" instead of poking at hardware registers.
+
+**Who uses what — the connection map**
+
+| `core/` file | What it is (one line) | Used directly by | Which buddy that serves |
+|---|---|---|---|
+| `rc_prelude.h` | The mandatory first `#include` in every `.c` file | every `.c` file in the tree | everyone |
+| `rc_types.h` | The shared dictionary: result codes, command names, event IDs, the event "parcel" | every file (pulled in by the other headers) | everyone |
+| `rc_config.h` | The one settings sheet: every pin number and tuning constant | every driver, subsystem and `app_main.c` | everyone |
+| `rc_time.*` | Microsecond stopwatch read straight from the chip | `drv_encoder`, `drv_ir`, `drv_ultrasonic`, `sub_terrain`, `sub_telemetry` | 2, 3, 4, 5, 1 |
+| `rc_gpioirq.*` | The doorbell switchboard: routes the chip's single GPIO interrupt to the right driver | `drv_encoder` (GP4/GP5), `drv_ir` (GP27), `drv_ultrasonic` (GP17) | 2, 3, 5 |
+| `rc_defer.*` | The "do it in a moment" list: lets an interrupt hand real work to a task | `drv_encoder`, `drv_ir`, `drv_ultrasonic` | 2, 3, 5 |
+| `rc_event.*` | The notice board (publish / subscribe) that connects all subsystems | every driver and subsystem | everyone |
+| `rc_pwm.*` | The dimmer switch: turns "40 % power" or "1500 µs pulse" into a PWM signal | `drv_motor` (20 kHz), `drv_servo` (50 Hz) | 2, 5 |
+| `rc_fmt.*` | A tiny, safe text formatter for building telemetry messages | `sub_telemetry` | 1 |
+
+Read the table by row: *"`rc_pwm` is the dimmer switch; the motor driver
+and the servo driver use it; so it serves Buddy 2 and Buddy 5."* Each
+buddy's section further down repeats just the rows that matter to them.
+
+Below, each file in plain language. You do not need to understand the
+insides to use them — the point is to know what each one *offers* and
+which of your files calls it.
+
+---
+
+#### `rc_prelude.h` — "include me first"
+
+**What it is.** A 50-line header whose only job is to be the first line of
+every `.c` file. It fixes a naming clash: the RTOS defines a type called
+`size_t` one way and the standard C library (which we need for
+`memset`/`strlen`-style helpers) defines it another way. If both
+definitions meet in one file, the compiler stops with
+`conflicting types for 'size_t'`. It's like two colleagues named "Sam" in
+one email thread — someone has to say which Sam we mean. `rc_prelude.h`
+tells the RTOS "don't define `size_t`, let the C library do it" *before*
+any RTOS header is read. That's why the rule is "first line, always".
+
+**Who uses it.** Every `.c` file. If you create a new file and forget it,
+the very first `#include <string.h>` will fail to compile.
+
+#### `rc_types.h` — the shared dictionary
+
+**What it is.** The definitions everyone has to agree on so the files can
+talk to each other:
+
+- `rc_result_t` — the answer every function gives back: `RC_OK`, or a
+  named reason for failure (`RC_ERR_BUSY`, `RC_ERR_TIMEOUT`,
+  `RC_ERR_HARDWARE`…). Every driver and subsystem function returns one of
+  these instead of a bare number, so a failure is readable at a glance.
+- `rc_nav_cmd_t` — the four barcode commands plus stop:
+  `RC_CMD_TURN_LEFT`, `RC_CMD_TURN_RIGHT`, `RC_CMD_GO_STRAIGHT`,
+  `RC_CMD_U_TURN`, `RC_CMD_STOP`. Buddy 3 produces these; `sub_nav`
+  consumes them.
+- `rc_evt_id_t` — the list of every event that can appear on the notice
+  board (`RC_EVT_ODOMETRY`, `RC_EVT_LINE_SAMPLE`, `RC_EVT_HUMP_END`…).
+  Adding a new kind of message to the car means adding one line here.
+- `rc_event_t` — the **parcel** itself. It has a label (`id`), a
+  timestamp (`t_us`, stamped automatically when published), and a
+  compartment `u` that holds *one* of many possible contents: `u.odometry`
+  for speed/distance, `u.line` for the two IR sensor bits, `u.ultra` for a
+  range reading, and so on. In C this "one box, many possible contents" is
+  called a *union*: the box is only as big as the largest item, and the
+  `id` label tells the reader which item is inside. A subscriber reads
+  `evt->id` first and then the matching `evt->u.xxx`.
+
+**Who uses it.** Everyone, automatically — every other `core/` header
+includes it.
+
+#### `rc_config.h` — the settings sheet
+
+**What it is.** A single header containing every GPIO pin number, every
+timing period, every task priority and every mechanical measurement
+(wheel diameter, encoder slots, wheel base). Nothing else in the tree is
+allowed to contain a bare pin number. Changing a pin, a sample rate or a
+priority means editing exactly one line here.
+
+The file is split into blocks: *fixed by the Robo Pico board* (motors,
+servo ports, buzzer, buttons — do not touch), *chosen by us* (encoders,
+IR sensors, ultrasonic, IMU — move if your wiring differs), *timing*,
+*task priorities*, *mechanical constants*, and per-subsystem tuning
+(ultrasonic limits, scan geometry, event ring sizes).
+
+**Who uses it.** Every driver, every subsystem, `app_main.c`, and three of
+the `core/` files themselves. If you're looking for "which pin is the
+right encoder on?" or "how often does the PID run?" the answer is here.
+
+#### `rc_time.c` / `rc_time.h` — the stopwatch
+
+**What it is.** A way to read *microseconds* (millionths of a second)
+since the chip powered on. The RTOS's own clock only ticks every 1 ms,
+which is far too coarse for two things this car does: measuring how long
+an ultrasonic echo takes to come back (1 ms of error is 17 cm of range)
+and measuring how wide a barcode bar is as it slides past the sensor. The
+RP2040 has a free-running 1 MHz counter in hardware, and `rc_time_us()`
+simply reads it — no interrupt, no RTOS call, so it is safe to read from
+inside an interrupt.
+
+Three functions:
+
+- `rc_time_us()` — the raw microsecond count.
+- `rc_time_since(then)` — microseconds elapsed since an earlier reading.
+  Use this rather than `now - then` by hand: the counter is 32-bit and
+  wraps back to zero every ~71 minutes, and this function is written so
+  the wrap doesn't produce a wrong answer.
+- `rc_time_ms()` — the same clock in milliseconds, for less precise uses
+  like "how long did the hump last" or telemetry timestamps.
+
+**Who uses it.** `drv_encoder` (time between clicks → speed), `drv_ir`
+(time between barcode edges → bar width), `drv_ultrasonic` (echo flight
+time → distance), `sub_terrain` (hump duration), `sub_telemetry`
+(message timestamps). `rc_event` also stamps every parcel with it.
+
+#### `rc_gpioirq.c` / `rc_gpioirq.h` — the doorbell switchboard
+
+**What it is.** The RP2040 has 30 GPIO pins but only *one* interrupt line
+for all of them together. Four of our pins need to trigger code the
+instant they change (left encoder GP4, right encoder GP5, ultrasonic echo
+GP17, barcode sensor GP27). Picture an apartment block with one shared
+doorbell: when it rings, someone has to look at the panel to see which
+flat was pressed and go tell *that* tenant. `rc_gpioirq` is that
+concierge. It claims the one interrupt from the RTOS, and when it fires it
+reads the chip's status register, works out which pin(s) changed, and
+calls the small handler the owning driver registered for that pin —
+passing the pin number, whether it went high or low, and a microsecond
+timestamp taken at the door.
+
+Three functions a driver uses:
+
+- `rc_gpioirq_attach(pin, edges, pull, handler, ctx)` — "ring my handler
+  when this pin goes up / down / either way". Also sets the pin up as an
+  input with the requested pull resistor.
+- `rc_gpioirq_enable(pin, on/off)` — temporarily mute one pin without
+  forgetting the registration. The ultrasonic driver uses this so echo
+  edges are only listened to while a ping is actually in flight.
+- `rc_gpioirq_detach(pin)` — undo attach.
+
+The handler you register runs *inside the interrupt*, so the rule in §0.2
+applies: timestamp, update a counter, ring the defer bell, return. Nothing
+else. On the dual-core build the interrupt is owned by core 0 only, as the
+port requires.
+
+**Who uses it.** `drv_encoder` (rising edges on GP4/GP5), `drv_ir`
+(both edges on GP27), `drv_ultrasonic` (both edges on GP17).
+
+#### `rc_defer.c` / `rc_defer.h` — the "do it in a moment" list
+
+**What it is.** The partner to `rc_gpioirq`. An interrupt handler is only
+allowed a few microseconds and may not do anything that could wait, loop
+or call into another subsystem. But the *result* of an interrupt — "a
+barcode edge arrived, decode it", "the echo came back, publish the
+range" — is real work. `rc_defer` is how the interrupt hands that work to
+a normal task without doing it itself.
+
+Each driver registers a **drain** function once at start-up
+(`rc_defer_register(my_drain, ctx)` → returns a small handle number). Then,
+inside its interrupt handler, the driver calls
+`rc_defer_signal_i(handle)` — a single RTOS call that sets one bit in an
+event flag, the RTOS equivalent of pressing a "please come" button. A
+dedicated **Defer task** (priority 4, the highest in the car) is sleeping
+on that flag; it wakes, sees which bits are set, and calls the matching
+drain functions in task context, where publishing events and calling
+callbacks is allowed. Because the Defer task sits above both event
+dispatchers, the drain normally runs within microseconds of the interrupt
+that asked for it.
+
+Up to 16 drains can be registered; the car uses three. `rc_defer_count()`
+tells you how many times drains have been requested, handy for spotting a
+sensor that's "ringing the bell" far more often than it should.
+
+**Who uses it.** `drv_encoder` (`encoder_drain`), `drv_ir`
+(`barcode_drain`), `drv_ultrasonic` (`ultra_drain`). `app_main.c` calls
+`rc_defer_init()` before anything else so the task exists before any
+driver registers with it.
+
+#### `rc_event.c` / `rc_event.h` — the notice board
+
+**What it is.** §0.2 already explains the idea (publish / subscribe, two
+lanes). This is what's inside:
+
+- Each lane owns a **ring buffer** of 64 parcel slots — a fixed circle of
+  pigeon-holes. Publishing copies your `rc_event_t` into the next free
+  slot and moves the "write" pointer on; the dispatcher reads from the
+  "read" pointer and moves it on. When write catches up with read the ring
+  is full and the parcel is *dropped and counted* (`rc_event_dropped()`),
+  never blocked on. Bounded and predictable is the whole point.
+- Each lane has a **dispatcher task** (FAST at priority 5, SLOW at
+  priority 9). It sleeps on an event flag; every publish sets the flag; the
+  task wakes, pops parcels one by one and calls every subscriber for that
+  parcel's `id`, in the order they subscribed. Up to 32 subscriptions per
+  lane.
+- Two ways to publish: `rc_event_publish()` from a task, and
+  `rc_event_publish_i()` from inside an interrupt (it uses the
+  interrupt-safe lock). Both fill in the timestamp for you.
+- `rc_event_subscribe(id, lane, callback, ctx)` returns a handle;
+  `rc_event_unsubscribe(handle)` removes it.
+
+The protection around the ring is a few-microsecond critical section:
+interrupts masked on single core, plus a spinlock on the dual-core build.
+There are no mutexes anywhere on the control path — subsystems never share
+variables, they only pass parcels.
+
+**Who uses it.** Everything. Drivers publish raw readings
+(`ENCODER_EDGE`, `LINE_SAMPLE`, `IMU_SAMPLE`, `ULTRA_RESULT`,
+`BARCODE_EDGE`); subsystems subscribe to those and publish their
+conclusions (`ODOMETRY`, `LINE_LOST`, `BARCODE_DECODED`, `HUMP_END`,
+`OBSTACLE_PROFILE`, `AVOIDANCE_PLAN`); `sub_nav` and `sub_telemetry`
+subscribe to the conclusions. `app_main.c` calls `rc_event_init()` second,
+straight after `rc_defer_init()`, because every other `init` subscribes or
+publishes.
+
+#### `rc_pwm.c` / `rc_pwm.h` — the dimmer switch
+
+**What it is.** A motor can't be told "run at 40 %". What you *can* do is
+switch its power on and off very fast — say 20,000 times a second — and
+leave it on for 40 % of each cycle. The motor's inertia smooths that into
+40 % of full speed. That trick is **PWM** (pulse-width modulation). A
+hobby servo uses the same idea at a different speed: 50 pulses a second,
+and the *width* of each pulse (1000–2000 µs) tells the servo which angle
+to hold.
+
+The RTOS port gives us the raw PWM registers but no way to set the slow
+frequency a servo needs; `rc_pwm` adds that one missing register write
+and wraps everything in four calls:
+
+- `rc_pwm_init_pin(pin, freq_hz)` — set the pin's PWM channel to this
+  frequency and start it at 0 %.
+- `rc_pwm_set_duty(pin, permille)` — 0..1000, i.e. tenths of a percent.
+  (We use "permille" everywhere instead of "percent" so we never need a
+  decimal point — there's no floating point on this chip.)
+- `rc_pwm_set_pulse_us(pin, us)` — set the pulse width directly in
+  microseconds; what servos want.
+- `rc_pwm_enable(pin, on/off)`.
+
+One catch worth knowing: the RP2040's PWM hardware is organised in
+**slices** of two pins each, and both pins in a slice must share the same
+frequency. The pin map in `rc_config.h` was chosen so that the two pins of
+each motor (GP8/GP9, GP10/GP11) and the two servo ports (GP12/GP13) each
+land on their own slice. Don't move a motor pin onto the servo's slice.
+
+**Who uses it.** `drv_motor` (both motors at 20 kHz — above hearing, so
+no whine), `drv_servo` (50 Hz, pulse in µs).
+
+#### `rc_fmt.c` / `rc_fmt.h` — the tiny text printer
+
+**What it is.** Telemetry needs to build text like
+`{"state":2,"speed":250,"dist":1830}`. The standard C way is `snprintf`,
+but on this chip that drags in 10–20 kB of library code and, in some
+configurations, calls `malloc` from inside a periodic task — both things
+the resource-efficiency marking scheme penalises. `rc_snprintf` is our own
+150-line replacement that supports only what telemetry needs
+(`%d %u %ld %lu %c %s %%`), never allocates memory, and always leaves the
+output properly terminated even when the buffer is too small.
+`rc_strlen` is the matching string-length helper.
+
+**Who uses it.** `sub_telemetry` only. If you ever need to format text
+elsewhere, use this rather than `snprintf` so the rest of the tree stays
+consistent.
+
+---
+
+#### How `app/app_main.c` wires the toolbox together (start-up order)
+
+The order in `usermain()` is not arbitrary; each step needs the one before
+it:
+
+1. `rc_defer_init()` — the Defer task must exist before any driver
+   registers a drain.
+2. `rc_event_init()` — the notice board (and `rc_time_init()`, which it
+   calls) must exist before anyone subscribes or publishes.
+3. `rc_gpioirq_init()` — the switchboard must own the interrupt before
+   any driver attaches a pin.
+4. Drivers: motor, encoder, servo, ultrasonic, IR, then IMU (the IMU is
+   allowed to fail — the car still runs, it just can't measure humps).
+5. Subsystems: motion, line, barcode, terrain, scan, telemetry, and
+   finally `sub_nav`, because it subscribes to all the others' events.
+6. Two housekeeping tasks (Sense at priority 7, Blink at 10), IMU
+   calibration, then `sub_nav_start()`.
+
+If you add a new driver or subsystem, slot its `init` into the same
+pattern: after the `core/` services it needs, before anything that
+subscribes to it.
+
+---
+
 ## 1. Roles at a glance
 
 | Buddy | Files you own | What you're building |
@@ -475,6 +783,31 @@ Now jump to your section.
 ---
 
 ### Buddy 1 — WiFi, Command & Telemetry
+
+**How your files connect to the rest of the car** (see §0.6 for what
+each `core/` file is)
+
+You are the only buddy without a `drivers/` file of your own — the WiFi
+chip is driven by the RTOS port's own library, and until that path is
+proven your "hardware" is the serial console. Your subsystem sits at the
+*receiving* end of the notice board: it never reads a sensor directly, it
+listens to what the other four subsystems publish and turns that into
+messages.
+
+| Your file | Talks to | Through | In plain terms |
+|---|---|---|---|
+| `sub_telemetry.c` | `core/rc_event` | `rc_event_subscribe(…, RC_LANE_SLOW, …)` for `ODOMETRY`, `LINE_SAMPLE`, `BARCODE_DECODED`, `HUMP_END`, `OBSTACLE_PROFILE`, `IMPACT` | "Tell me whenever one of these happens." Always the SLOW lane, so a slow network send can never delay steering. |
+| `sub_telemetry.c` | `core/rc_fmt` | `rc_snprintf()`, `rc_strlen()` | Builds the JSON text without the heavy standard library. |
+| `sub_telemetry.c` | `core/rc_time` | `rc_time_ms()` | Timestamps each message. |
+| `sub_telemetry.c` | `core/rc_event` | `rc_event_dropped(lane)` | Reports in the heartbeat whether the notice board is overflowing — a health statistic for the whole car. |
+| `sub_telemetry.c` | `core/rc_config.h` | `RC_PERIOD_TELEM_MS`, `RC_PRI_TELEMETRY` | How often to publish (250 ms) and how unimportant your task is (priority 10, the lowest). |
+| `sub_telemetry.c` | *a sink* (console now; UDP / MQTT later) | the `sub_telemetry_sink_t` function-pointer struct | The only thing you swap to move from serial to WiFi. The rest of the file doesn't change. |
+
+Data flows *into* you from Buddies 2–5 via events, and *out* of you to the
+sink. The one path in the other direction — commands arriving from the
+network — comes in through the callback registered with
+`sub_telemetry_on_command()`, which hands the `rc_nav_cmd_t` to `sub_nav`
+(nothing delivers a command yet; that arrives with the MQTT sink).
 
 **What this module does**
 
@@ -1200,6 +1533,33 @@ arg, cmd_ctx)` to hand it off to whatever registered here (most likely
 **Files:** `subsystems/sub_motion.c` / `.h`, `drivers/drv_motor.c` / `.h`,
 `drivers/drv_encoder.c` / `.h`
 
+**How your files connect to the rest of the car** (see §0.6 for what
+each `core/` file is)
+
+Three layers, bottom to top. `drv_motor` only knows how to push power to
+a wheel; `drv_encoder` only knows how to count clicks; `sub_motion` is the
+brain that reads the clicks, decides the power, and tells everyone else
+what happened.
+
+| Your file | Talks to | Through | In plain terms |
+|---|---|---|---|
+| `drv_motor.c` | `core/rc_pwm` | `rc_pwm_init_pin(pin, 20000)`, `rc_pwm_set_duty(pin, permille)` | "Set this wheel's dimmer to 40 %." Two pins per motor (GP8/9, GP10/11): drive A for forward, B for reverse, both high to brake. |
+| `drv_encoder.c` | `core/rc_gpioirq` | `rc_gpioirq_attach(GP4/GP5, RC_EDGE_RISE, …)` | "Ring `encoder_isr` every time a slot passes the sensor." |
+| `drv_encoder.c` | `core/rc_time` | `rc_time_us()` inside the ISR | Stamps each click so the gap between clicks gives speed. |
+| `drv_encoder.c` | `core/rc_defer` | `rc_defer_register(encoder_drain)`, `rc_defer_signal_i()` | The ISR only counts and rings the bell; `encoder_drain` does the arithmetic in task context. |
+| `drv_encoder.c` | `core/rc_event` | `rc_event_publish(RC_EVT_ENCODER_EDGE)` | Lets anyone (telemetry, debugging) watch raw clicks. |
+| `drv_encoder.c` | `drv_motor.c` | `drv_motor_get(side)` | The slot disc can't tell direction, so the encoder asks the motor which way it was *told* to spin. |
+| `sub_motion.c` | `drv_encoder.c` | `drv_encoder_speed_mm_s()`, `drv_encoder_distance_mm()` | Actual speed and distance for the PID and for "have I gone 300 mm yet?". |
+| `sub_motion.c` | `drv_motor.c` | `drv_motor_set_pair(left, right)`, `drv_motor_stop()` | The PID's output goes here every 20 ms. |
+| `sub_motion.c` | `core/rc_event` | `rc_event_publish(RC_EVT_ODOMETRY)`, `…(RC_EVT_MOTION_DONE)` | Every 20 ms: "here's my speed/distance". On finishing a move: "done" (also delivered as a direct callback to whoever asked). |
+| `sub_motion.c` | `core/rc_config.h` | `RC_PERIOD_MOTION_MS`, `RC_PRI_MOTION`, `RC_ENC_UM_PER_TICK`, `RC_WHEEL_BASE_MM` | Loop rate, task priority, and the measured mechanics your maths depends on. |
+
+Who calls *you*: `sub_line` (Buddy 3) calls `sub_motion_drive(base, steer)`
+on every 5 ms line sample; `sub_nav` calls `sub_motion_forward_mm()` /
+`sub_motion_turn_deg()` for barcode commands and bypass legs, and
+`sub_motion_stop()` on faults. None of them touch `drv_motor` directly —
+you own the wheels.
+
 **What this module does**
 
 This module is the car's legs and inner ear. It decides how much power to
@@ -1734,6 +2094,36 @@ Then it branches on `mode`:
 
 **Files:** `subsystems/sub_line.c/.h`, `subsystems/sub_barcode.c/.h`,
 `drivers/drv_ir.c/.h`
+
+**How your files connect to the rest of the car** (see §0.6 for what
+each `core/` file is)
+
+One driver serves two subsystems. `drv_ir` owns all three IR sensors:
+the two *line* sensors (GP6/GP7) are read on a timer, the *barcode*
+sensor (GP27) is interrupt-driven because bar widths are measured in
+microseconds. `sub_line` turns the two line bits into steering;
+`sub_barcode` turns the timed edges into a letter.
+
+| Your file | Talks to | Through | In plain terms |
+|---|---|---|---|
+| `drv_ir.c` (line) | the **Sense task** in `app_main.c` | `drv_ir_sample_line()` called every 5 ms | The Sense task reads GP6/GP7 and you publish the two bits. |
+| `drv_ir.c` (line) | `core/rc_event` | `rc_event_publish(RC_EVT_LINE_SAMPLE)` | "Left sees black / right sees black" — 200 times a second. |
+| `drv_ir.c` (barcode) | `core/rc_gpioirq` | `rc_gpioirq_attach(GP27, RC_EDGE_BOTH, …)`, `rc_gpioirq_enable()` | "Ring `barcode_isr` whenever the sensor flips black↔white"; muted when not reading a barcode. |
+| `drv_ir.c` (barcode) | `core/rc_time` | `rc_time_us()` in the ISR | Time between flips = width of the bar or gap. That width *is* the data. |
+| `drv_ir.c` (barcode) | `core/rc_defer` | `rc_defer_register(barcode_drain)`, `rc_defer_signal_i()` | ISR stores the width in a small ring and rings the bell; the drain publishes. |
+| `drv_ir.c` (barcode) | `core/rc_event` | `rc_event_publish(RC_EVT_BARCODE_EDGE)` | One parcel per bar/gap with its width. |
+| `sub_line.c` | `core/rc_event` | `rc_event_subscribe(RC_EVT_LINE_SAMPLE, RC_LANE_FAST, …)` | Runs on every sample, inside the FAST dispatcher — you have no task of your own. |
+| `sub_line.c` | `sub_motion.c` (Buddy 2) | `sub_motion_drive(base, steer)` | Your steering decision becomes wheel power. |
+| `sub_line.c` | `core/rc_event` | `rc_event_publish(RC_EVT_LINE_LOST / RC_EVT_LINE_REACQUIRED)` | Tells `sub_nav` the line vanished / came back. |
+| `sub_barcode.c` | `core/rc_event` | `rc_event_subscribe(RC_EVT_BARCODE_EDGE, RC_LANE_FAST, …)` | Collects widths into a 9-element window and matches it against the Code 39 table. |
+| `sub_barcode.c` | `core/rc_event` | `rc_event_publish(RC_EVT_BARCODE_DECODED)` | Carries the letter *and* its `rc_nav_cmd_t` meaning (A→left, B→right, C→straight, D→U-turn). |
+| both | `core/rc_config.h` | `RC_PIN_IR_*`, `RC_PERIOD_LINE_MS` | Pins and the 5 ms sample period. |
+
+Who calls *you*: `sub_nav` calls `sub_line_enable()` to start/stop
+steering, `sub_line_begin_search()` before and after an obstacle bypass,
+and `sub_barcode_arm()` when both sensors go black (the barcode lead-in).
+Your decoded command goes back to `sub_nav` as an event, never as a
+direct call.
 
 **What this module does**
 
@@ -2529,6 +2919,33 @@ more bar/space width:
 
 **Files:** `subsystems/sub_terrain.c/.h`, `drivers/drv_imu.c/.h`
 
+**How your files connect to the rest of the car** (see §0.6 for what
+each `core/` file is)
+
+The IMU is the one sensor that does **not** go through `core/rc_gpioirq`
+or `core/rc_defer`: it's polled over I2C on a timer rather than firing an
+interrupt, and the I2C bus itself is driven by the RTOS port's own
+`dev_i2c` device driver (that's the `#include <dev_i2c.h>` at the top of
+`drv_imu.c` — the only place in our tree that uses a port driver
+directly).
+
+| Your file | Talks to | Through | In plain terms |
+|---|---|---|---|
+| `drv_imu.c` | the RTOS port's I2C driver | `<dev_i2c.h>` — `tk_opn_dev` plus the port's device read/write calls on I2C1 | Reads six bytes of accelerometer and six of magnetometer from the chip at addresses `0x19` / `0x1E` (GP2/GP3 after the §0.5.3 pin patch). |
+| `drv_imu.c` | the **Sense task** in `app_main.c` | `drv_imu_sample()` called every 10 ms | The Sense task is the clock; you don't own a task. |
+| `drv_imu.c` | `core/rc_event` | `rc_event_publish(RC_EVT_IMU_SAMPLE)` | One parcel per sample with raw x/y/z and the derived pitch in tenths of a degree. |
+| `drv_imu.c` | `core/rc_config.h` | `RC_I2C_UNIT_IMU`, `RC_I2C_ADDR_ACCEL`, `RC_I2C_ADDR_MAG` | Which bus and which chip addresses. |
+| `sub_terrain.c` | `core/rc_event` | `rc_event_subscribe(RC_EVT_IMU_SAMPLE, RC_LANE_FAST, …)` | Your hump state machine runs inside the FAST dispatcher on every sample. |
+| `sub_terrain.c` | `core/rc_time` | `rc_time_ms()` | How long the hump lasted. |
+| `sub_terrain.c` | `core/rc_event` | `rc_event_publish(RC_EVT_HUMP_BEGIN / HUMP_END / MOTION_CLASS / IMPACT)` | Your conclusions. `HUMP_END` carries the peak height; `IMPACT` sends `sub_nav` to STOPPED. |
+| `sub_terrain.c` | `sub_motion.c` (Buddy 2) | *(planned)* odometry distance during the hump | The TODO cross-check: pitch × distance travelled as a second estimate of height. |
+
+Who calls *you*: `app_main.c` calls `drv_imu_calibrate()` once at boot
+while the car is still; `sub_telemetry` (Buddy 1) reads
+`sub_terrain_max_peak_mm()` for the "highest hump" report. Note that
+`app_main.c` deliberately lets `drv_imu_init()` fail without stopping the
+car — hump reporting is lost, but the mission continues.
+
 **What this module does**
 
 This module lets the car feel the ground it's driving on. It uses two
@@ -2956,6 +3373,34 @@ full reboot.
 
 **Files:** `subsystems/sub_scan.c/.h`, `drivers/drv_ultrasonic.c/.h`,
 `drivers/drv_servo.c/.h`
+
+**How your files connect to the rest of the car** (see §0.6 for what
+each `core/` file is)
+
+Two drivers, one subsystem, and you are the heaviest user of `core/` on
+the team: the ultrasonic driver alone touches the switchboard, the
+stopwatch, the defer list *and* the RP2040's hardware timer alarms.
+
+| Your file | Talks to | Through | In plain terms |
+|---|---|---|---|
+| `drv_servo.c` | `core/rc_pwm` | `rc_pwm_init_pin(GP12, 50)`, `rc_pwm_set_pulse_us()`, `rc_pwm_enable()` | "Hold this angle" becomes a 1000–2000 µs pulse fifty times a second. `drv_servo_settle_ms()` estimates how long the horn takes to get there. |
+| `drv_ultrasonic.c` | the RTOS's timer interrupts | `tk_def_int(INTNO_TIMER_1 / _2)` directly (not via `core/`) | Alarm 1 ends the 12 µs TRIG pulse; alarm 2 gives up if no echo arrives within 30 ms. No delay loops anywhere. |
+| `drv_ultrasonic.c` | `core/rc_gpioirq` | `rc_gpioirq_attach(GP17, RC_EDGE_BOTH, …)`, `rc_gpioirq_enable(GP17, on/off)` | "Ring `echo_isr` on both edges" — but only while a ping is live, so a stray edge can't fake a reading. |
+| `drv_ultrasonic.c` | `core/rc_time` | timestamps in `echo_isr` | Echo went high at *t1*, low at *t2*; `t2 − t1` in µs × 343 m/s ÷ 2 = distance. |
+| `drv_ultrasonic.c` | `core/rc_defer` | `rc_defer_register(ultra_drain)`, `rc_defer_signal_i()` | ISR stores the two timestamps and rings the bell; `ultra_drain` does the division and publishes. |
+| `drv_ultrasonic.c` | `core/rc_event` | `rc_event_publish(RC_EVT_ULTRA_RESULT)` | Range in mm, valid flag, and the servo angle it was tagged with. `sub_nav` watches these for the "something ahead" trigger. |
+| `drv_ultrasonic.c` | `sub_scan.c` | `drv_ultrasonic_on_result(cb)` direct callback | Same result, delivered straight to your subsystem so the scan task can wake immediately (`tk_set_flg` on your own flag). |
+| `sub_scan.c` | `drv_servo.c` / `drv_ultrasonic.c` | `drv_servo_set_angle()`, `drv_ultrasonic_ping(angle)` | The scan task steps the servo, pings, waits on its flag, repeats — coarse 30° sweep, then fine 6° sweep around the nearest hit. |
+| `sub_scan.c` | `core/rc_event` | `rc_event_publish(RC_EVT_OBSTACLE_PROFILE)`, `…(RC_EVT_AVOIDANCE_PLAN)` | Your conclusions: where the obstacle is and which way to go round it. |
+| `sub_scan.c` | `core/rc_config.h` | `RC_SCAN_COARSE_*`, `RC_SCAN_FINE_STEP`, `RC_PERIOD_SCAN_MS`, `RC_ULTRA_*` | Sweep geometry, step timing, range limits. |
+
+Who calls *you*: `sub_nav` calls `sub_scan_set_watch(true, mm)` while
+line-following (one forward ping every 60 ms), `sub_scan_start()` when a
+watch ping comes back closer than the trigger distance, and
+`sub_scan_abort()` on a stop. Your plan comes back to `sub_nav` as an
+event and as the `on_complete` callback, and `sub_nav` then drives the
+bypass using Buddy 2's `sub_motion_*()` calls — you never touch the
+motors yourself.
 
 **What this module does**
 
