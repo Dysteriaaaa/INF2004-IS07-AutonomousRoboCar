@@ -7,7 +7,8 @@ ownership table in the [README](README.md) and [SKILL.md](SKILL.md). Read
 your own section fully before touching code. Skim §0 too — §0.2 explains the
 event bus and §0.6 walks through every file in `core/`, the plumbing every
 module sits on top of; you will bump into it no matter which piece you own.
-Each Buddy section then opens with a "How your files connect" table showing
+§0.7 shows every physical part with a picture and who owns it.
+Each Buddy section then opens with your hardware and a "How your files connect" table showing
 exactly which `core/` services and which other buddies' files yours talk to.
 
 If anything here disagrees with `docs/HARDWARE.md`, trust `docs/HARDWARE.md`
@@ -40,7 +41,7 @@ core/         the plumbing everyone shares (event bus, timing, interrupts, PWM) 
 drivers/      one file per physical part (motor, encoder, servo, ultrasonic sensor, IR sensor, IMU)
 subsystems/   one file per team member's "job", plus the shared mission logic
 app/          the startup code that wires everything together and boots the car
-docs/         HARDWARE.md — wiring, pin numbers, and calibration steps
+docs/         HARDWARE.md — wiring, pin numbers, and calibration steps; img/hw/ — part pictures used in §0.7
 ```
 
 A **driver** talks directly to one physical part (e.g. "read the raw motor
@@ -768,6 +769,169 @@ subscribes to it.
 
 ---
 
+### 0.7 Hardware — who owns which physical part (with pictures)
+
+Every part in the kit has exactly one buddy responsible for wiring it,
+calibrating it and writing its driver — except the handful of *shared*
+parts that everyone's code runs through. Use this section to recognise
+each part on the bench and to know who to ask about it.
+
+Where the pictures come from: the Robo Pico, Pico W, HC-SR04, GY-511 and
+TCRT5000 images are lifted from the datasheets in `documents/`. The
+motor, encoder, servo, IR module and battery have no datasheet in the
+folder, so those are labelled drawings of the standard part — **when the
+kit is in front of you, photograph the real thing and drop it into
+`docs/img/hw/` under the same filename**; this guide will pick it up
+without any other edit.
+
+**Ownership at a glance**
+
+| Part | Qty | Owner | Plugs into | Picture |
+|---|---|---|---|---|
+| Raspberry Pi Pico W | 1 | **shared** | Robo Pico's Pico socket | [Pico W pinout](#shared-parts) |
+| Cytron Robo Pico carrier board | 1 | **shared** | — (everything plugs into it) | [Robo Pico](#shared-parts) |
+| Single-cell LiPo battery | 1 | **shared** | Robo Pico LiPo socket | [LiPo](#shared-parts) |
+| Chassis, wheels, castor, USB-serial adapter, Grove cables, status LED | — | **shared** | see `docs/HARDWARE.md` §8 | — |
+| DC gear motor + wheel | 2 | **Buddy 2** | Robo Pico M1 / M2 screw terminals (GP8–GP11) | [motor](#buddy-2-hardware) |
+| Slotted optical encoder module + disc | 2 | **Buddy 2** | Grove 3 → GP4 (left), GP5 (right) | [encoder](#buddy-2-hardware) |
+| IR reflective module (ST188 board or TCRT5000 board) | 3 | **Buddy 3** | GP6, GP7 (line); GP27 + GP26/ADC0 (barcode) | [IR module](#buddy-3-hardware) |
+| GY-511 breakout (LSM303DLHC accel + magnetometer) | 1 | **Buddy 4** | Grove 2 → I2C1 on GP2 (SDA) / GP3 (SCL) | [GY-511](#buddy-4-hardware) |
+| HC-SR04 ultrasonic ranger | 1 | **Buddy 5** | Grove 4 → GP16 (TRIG), GP17 (ECHO via divider) | [HC-SR04](#buddy-5-hardware) |
+| SG90-class servo + pan bracket | 1 | **Buddy 5** | Robo Pico servo port 1 (GP12) | [servo](#buddy-5-hardware) |
+| 1 kΩ + 2 kΩ resistors (ECHO divider) | 1 each | **Buddy 5** | inline on the ECHO wire | — |
+| WiFi radio (CYW43439, on the Pico W itself) | — | **Buddy 1** | nothing to wire | [Pico W pinout](#shared-parts) |
+
+Two rules that follow from the table:
+
+1. **If it's shared, don't change it without telling everyone.** Moving a
+   jumper on the Robo Pico, re-flashing with a different pin patch, or
+   swapping the battery affects every buddy's testing.
+2. **If it's yours, it's yours end to end** — mounting, wiring, the
+   `drivers/` file, calibration, and the "is it plugged in?" question at
+   integration time.
+
+<a id="shared-parts"></a>
+#### Shared parts
+
+**Raspberry Pi Pico W** — the computer. A green board with a silver RP2040
+chip in the middle and a metal-canned WiFi module (the CYW43439) near the
+USB end. It sits in the Robo Pico's socket, USB connector facing outwards.
+Everything in this repo runs on it. The pinout below is the one you'll
+keep coming back to: our pin numbers (GP4, GP16, …) are the green
+`GPn` labels, *not* the physical pin numbers 1–40.
+
+<img src="docs/img/hw/pico_w_pinout.jpg" width="720" alt="Pico W pinout">
+
+**Cytron Robo Pico** — the purple carrier board the Pico W plugs into. It
+provides the motor driver (so the Pico's 3.3 V pins can drive 6 V
+motors), four servo ports, seven Grove connectors, a LiPo charger and
+power switch, a buzzer, two buttons and a Neopixel LED. Nobody "owns" it
+because every buddy's part plugs into it somewhere — but Buddy 2 uses it
+most heavily (the motor terminals *are* the Robo Pico's motor driver).
+
+<img src="docs/img/hw/robo_pico_photo.jpg" width="380" alt="Robo Pico photo">  <img src="docs/img/hw/robo_pico_labelled.jpg" width="440" alt="Robo Pico labelled">
+
+Where the fixed pins live on it (from `core/rc_config.h`): motors on
+GP8–GP11, servo ports on GP12–GP15, buzzer GP22, buttons GP20/GP21,
+Neopixel GP18. Those cannot be moved — they're wired on the board.
+
+**Battery** — a single-cell 3.7 V LiPo pouch with a 2-pin JST plug that
+goes into the Robo Pico's LiPo socket. The Robo Pico charges it over USB
+and its power switch turns the whole car on and off. Note the HC-SR04
+wants 5 V and will lose range on a sagging battery — see
+`docs/HARDWARE.md` §3.
+
+<img src="docs/img/hw/lipo_battery.png" width="360" alt="LiPo battery">
+
+**Also shared, no picture needed:** the chassis and castor wheel; a
+USB-to-serial adapter (for the console on GP0/GP1); Grove cables; the
+external liveness LED on GP19 with its 330 Ω resistor.
+
+<a id="buddy-2-hardware"></a>
+#### Buddy 2 — Motion: motors and encoders
+
+**DC gear motor + wheel (×2).** The classic yellow "TT motor": a yellow
+plastic gearbox with a silver motor can on the back and two wires. Each
+one screws into a Robo Pico motor terminal (left → M1, right → M2). The
+Robo Pico drives each motor with two PWM pins, so "forward", "reverse"
+and "brake" are all done in `drv_motor.c` by choosing which pin gets the
+duty.
+
+<img src="docs/img/hw/motor_wheel.png" width="460" alt="TT gear motor with wheel and encoder disc">
+
+**Slotted optical encoder module (×2).** A small blue board with a black
+U-shaped fork on top. A slotted black disc on the motor's rear axle spins
+through the fork; every slot lets an IR beam through and the board's LM393
+comparator turns that into one clean pulse on its `D0` pin. Twenty slots
+per revolution → twenty pulses per wheel turn → speed and distance in
+`drv_encoder.c`. The disc can't tell which way it's turning, which is why
+`drv_encoder` asks `drv_motor` for the commanded direction.
+
+<img src="docs/img/hw/encoder_module.png" width="460" alt="slotted optical encoder module">
+
+<a id="buddy-3-hardware"></a>
+#### Buddy 3 — Line following and barcode: IR reflective modules
+
+**IR reflective module (×3).** A small board with a sensor element at one
+end that points *down* at the floor: it shines infrared light and
+measures how much bounces back — a lot from white, very little from
+black. An on-board LM393 comparator with a trim pot turns that into a
+clean `DOUT` high/low ("black / not black"); `AOUT` gives the raw
+analogue level. Two of these are the line sensors (`DOUT` → GP6 and
+GP7); the third is the barcode reader, wired on *both* outputs (`DOUT` →
+GP27 for edge timing, `AOUT` → GP26 for the analogue path). Your kit may
+have the Waveshare ST188 board or a TCRT5000 board — both work the same
+way; the TCRT5000 element itself is the small black block with two domes
+shown on the right.
+
+<img src="docs/img/hw/ir_module.png" width="460" alt="IR reflective module">  <img src="docs/img/hw/tcrt5000_element.png" width="180" alt="TCRT5000 element">
+
+<a id="buddy-4-hardware"></a>
+#### Buddy 4 — IMU: GY-511 breakout
+
+**GY-511 (LSM303DLHC) breakout (×1).** A small blue board, about the size
+of a fingernail, with an 8-pin header labelled `VIN 3.3V GND SCL SDA
+INT2 INT1 DRDY`. Only four wires are used: 3.3 V, GND, SCL → GP3, SDA →
+GP2 (Robo Pico Grove 2). It contains an accelerometer (tilt — how far the
+nose is up or down, which is how humps are detected) and a magnetometer
+(compass). **It has no gyroscope**, despite what many online tutorials
+for "GY-511" assume — see `docs/HARDWARE.md` §1.1. Mount it flat and
+firmly; a wobbling IMU reports a wobbling road.
+
+<img src="docs/img/hw/gy511_lsm303dlhc.jpg" width="380" alt="GY-511 LSM303DLHC breakout">
+
+<a id="buddy-5-hardware"></a>
+#### Buddy 5 — Scanning: ultrasonic ranger and servo
+
+**HC-SR04 ultrasonic ranger (×1).** The blue board with two silver
+"eyes": one speaker (T) that shouts an inaudible click, one microphone
+(R) that listens for the echo. Four pins: `VCC` (5 V), `Trig` → GP16,
+`Echo` → GP17, `GND`. **`Echo` outputs 5 V and the Pico's pins are 3.3 V
+only** — the 1 kΩ / 2 kΩ resistor divider on that wire is not optional.
+Range 2 cm – 4 m; the flight time of the echo is what `drv_ultrasonic.c`
+measures with the microsecond stopwatch.
+
+<img src="docs/img/hw/hcsr04.jpg" width="360" alt="HC-SR04 ultrasonic sensor">
+
+**SG90-class servo + pan bracket (×1).** The small blue plastic servo with
+a white horn and a three-wire lead (brown/black = GND, red = V+ i.e. battery voltage,
+orange/yellow = signal). It plugs straight into Robo Pico servo port 1
+(GP12) — the port has the 3-pin header in the right order. The HC-SR04
+bolts to a bracket on the horn so the scan task can point it from 30° to
+150°. Centre it at 90° *before* attaching the bracket.
+
+<img src="docs/img/hw/servo_sg90.png" width="400" alt="SG90 servo">
+
+#### Buddy 1 — no physical part to wire
+
+The WiFi radio is the CYW43439 module already on the Pico W (the metal
+can at the USB end in the pinout picture above). Your hardware work is
+limited to keeping the USB-serial adapter on GP0/GP1 for the console and,
+later, confirming the radio comes up through the port's `libwifi`. If a
+laptop hotspot or router is needed for the demo, that's yours to bring.
+
+---
+
 ## 1. Roles at a glance
 
 | Buddy | Files you own | What you're building |
@@ -783,6 +947,12 @@ Now jump to your section.
 ---
 
 ### Buddy 1 — WiFi, Command & Telemetry
+
+**Your hardware** — nothing to wire: the CYW43439 WiFi radio is on the
+Pico W itself, and until the network sink exists your "device" is the USB
+serial console on GP0/GP1. See §0.7.
+
+<img src="docs/img/hw/pico_w_pinout.jpg" width="420" alt="Pico W pinout">
 
 **How your files connect to the rest of the car** (see §0.6 for what
 each `core/` file is)
@@ -1533,6 +1703,13 @@ arg, cmd_ctx)` to hand it off to whatever registered here (most likely
 **Files:** `subsystems/sub_motion.c` / `.h`, `drivers/drv_motor.c` / `.h`,
 `drivers/drv_encoder.c` / `.h`
 
+**Your hardware** — 2 × DC gear motor with wheel (Robo Pico M1 / M2
+terminals), 2 × slotted optical encoder module with disc (GP4 left, GP5
+right). The Robo Pico's motor driver is shared but you're its main user.
+Details and wiring in §0.7 and `docs/HARDWARE.md` §4.2.
+
+<img src="docs/img/hw/motor_wheel.png" width="300" alt="TT gear motor"> <img src="docs/img/hw/encoder_module.png" width="300" alt="encoder module">
+
 **How your files connect to the rest of the car** (see §0.6 for what
 each `core/` file is)
 
@@ -2094,6 +2271,13 @@ Then it branches on `mode`:
 
 **Files:** `subsystems/sub_line.c/.h`, `subsystems/sub_barcode.c/.h`,
 `drivers/drv_ir.c/.h`
+
+**Your hardware** — 3 × IR reflective module (ST188 or TCRT5000 board):
+two pointing down for the line (`DOUT` → GP6, GP7), one for the barcode
+(`DOUT` → GP27 and `AOUT` → GP26). Each has a trim pot you will need to
+set on the actual track. Details in §0.7 and `docs/HARDWARE.md` §4.3.
+
+<img src="docs/img/hw/ir_module.png" width="300" alt="IR reflective module"> <img src="docs/img/hw/tcrt5000_element.png" width="130" alt="TCRT5000 element">
 
 **How your files connect to the rest of the car** (see §0.6 for what
 each `core/` file is)
@@ -2919,6 +3103,13 @@ more bar/space width:
 
 **Files:** `subsystems/sub_terrain.c/.h`, `drivers/drv_imu.c/.h`
 
+**Your hardware** — 1 × GY-511 breakout (LSM303DLHC accelerometer +
+magnetometer, **no gyroscope**) on I2C1: SDA → GP2, SCL → GP3 (Robo Pico
+Grove 2, after the §0.5.3 pin patch). Mount it flat and rigid. Details in
+§0.7 and `docs/HARDWARE.md` §4.4.
+
+<img src="docs/img/hw/gy511_lsm303dlhc.jpg" width="260" alt="GY-511 breakout">
+
 **How your files connect to the rest of the car** (see §0.6 for what
 each `core/` file is)
 
@@ -3373,6 +3564,13 @@ full reboot.
 
 **Files:** `subsystems/sub_scan.c/.h`, `drivers/drv_ultrasonic.c/.h`,
 `drivers/drv_servo.c/.h`
+
+**Your hardware** — 1 × HC-SR04 ultrasonic ranger (TRIG → GP16, ECHO →
+GP17 **through a 1 kΩ / 2 kΩ divider**, 5 V supply) mounted on 1 ×
+SG90-class servo (Robo Pico servo port 1, GP12) with a pan bracket.
+Details in §0.7 and `docs/HARDWARE.md` §4.5.
+
+<img src="docs/img/hw/hcsr04.jpg" width="260" alt="HC-SR04"> <img src="docs/img/hw/servo_sg90.png" width="300" alt="SG90 servo">
 
 **How your files connect to the rest of the car** (see §0.6 for what
 each `core/` file is)
