@@ -1,14 +1,14 @@
 /*
  *  drv_encoder.c
  *
- *  Reads the two wheel encoders (slotted discs + optical sensors) and
- *  turns raw "click" edges into speed (mm/s) and distance (mm). See
- *  drv_encoder.h for the odometry explanation and the single-channel
- *  direction caveat.
+ *  Reads the two wheel encoders and turns raw "click" edges into speed
+ *  (mm/s) and distance (mm). Each encoder has two channels: A raises the
+ *  interrupt and is counted; B is sampled at that instant to tell which
+ *  way the wheel is turning. See drv_encoder.h for the odometry
+ *  explanation.
  */
 #include "rc_prelude.h"
 #include "drv_encoder.h"
-#include "drv_motor.h"
 #include "rc_config.h"
 #include "rc_gpioirq.h"
 #include "rc_event.h"
@@ -45,7 +45,10 @@
  *                 so distance-since-reset = count - base_count.
  *   published   - the count value already turned into an RC_EVT_ENCODER_EDGE
  *                 event, so the bottom half doesn't republish unchanged data.
- *   pin         - which GPIO this encoder's sensor is wired to.
+ *   dir         - +1 forward / -1 reverse, read from channel B on the most
+ *                 recent channel-A edge.
+ *   pin_a       - channel A GPIO: the one that raises the interrupt.
+ *   pin_b       - channel B GPIO: sampled inside the ISR for direction.
  */
 typedef struct {
     volatile uint32_t count;
@@ -53,7 +56,9 @@ typedef struct {
     volatile uint32_t period_us;
     volatile uint32_t base_count;   /* snapshot at reset */
     volatile uint32_t published;    /* count already turned into events */
-    uint32_t          pin;
+    volatile int8_t   dir;
+    uint32_t          pin_a;
+    uint32_t          pin_b;
 } enc_t;
 
 /* Handle for the "deferred" (bottom-half) worker registered with
@@ -65,8 +70,8 @@ static int32_t defer_h = -1;
 /* The two encoders, indexed by rc_side_t (LEFT=0, RIGHT=1). Pin numbers
  * come from rc_config.h. */
 static enc_t encs[2] = {
-    { 0U, 0U, 0U, 0U, 0U, RC_PIN_ENC_L },
-    { 0U, 0U, 0U, 0U, 0U, RC_PIN_ENC_R }
+    { 0U, 0U, 0U, 0U, 0U, 1, RC_PIN_ENC_L_A, RC_PIN_ENC_L_B },
+    { 0U, 0U, 0U, 0U, 0U, 1, RC_PIN_ENC_R_A, RC_PIN_ENC_R_B }
 };
 
 /* ------------------------------------------------------------------ *
@@ -96,9 +101,10 @@ static void encoder_isr(uint32_t pin, bool level, uint32_t t_us, void *ctx)
     (void)level;
 
     /*
-     *  Everything this handler does: one subtraction, one compare, three
-     *  stores, one tk_set_flg (inside rc_defer_signal_i). No event is
-     *  built here and nothing is published. The bottom half does that.
+     *  Everything this handler does: one subtraction, one compare, one
+     *  GPIO register read, four stores, one tk_set_flg (inside
+     *  rc_defer_signal_i). No event is built here and nothing is
+     *  published. The bottom half does that.
      *
      *  This matters because the two encoders, the echo pin and the barcode
      *  pin all share IO_IRQ_BANK0 (one shared interrupt line for a whole
@@ -114,6 +120,12 @@ static void encoder_isr(uint32_t pin, bool level, uint32_t t_us, void *ctx)
         return;                          /* contact bounce, ignore */
     }
 
+    /* Quadrature direction: the two channels are 90 degrees out of phase,
+     * so at the instant A rises, B is still low in one direction and
+     * already high in the other. Which is "forward" depends on how the
+     * encoder is mounted - if a wheel reads backwards, swap its A and B
+     * wires. One register read, allowed inside an ISR. */
+    e->dir       = (gpio_get_val(e->pin_b) != 0U) ? (int8_t)-1 : (int8_t)1;
     e->last_us   = t_us;
     e->period_us = delta;
     e->count++;
@@ -191,18 +203,30 @@ rc_result_t drv_encoder_init(void)
         encs[i].period_us  = 0U;
         encs[i].base_count = 0U;
         encs[i].published  = 0U;
+        encs[i].dir        = 1;
 
-        /* Rising edges only. Counting both edges would double the
-         * resolution but a slotted disc has asymmetric mark/space (the
-         * solid part and the gap aren't the same width), so the widths
-         * would alternate and ruin the period estimate. */
-        res = rc_gpioirq_attach(encs[i].pin, RC_EDGE_RISE, 1,
+        /* Channel B is a plain input with a pull-up and Schmitt trigger,
+         * same pad setup rc_gpioirq_attach gives channel A. No interrupt
+         * on B: the ISR reads its level when A fires. */
+        (void)gpio_set_pin(encs[i].pin_b, GPIO_MODE_IN);
+        out_w(GPIO(encs[i].pin_b), GPIO_IE | GPIO_SHEMITT | GPIO_PUE);
+
+        /* Rising edges of A only. Counting both edges would double the
+         * resolution but the mark/space of the disc is not symmetric, so
+         * the widths would alternate and ruin the period estimate. */
+        res = rc_gpioirq_attach(encs[i].pin_a, RC_EDGE_RISE, 1,
                                 encoder_isr, &encs[i]);
         if (res != RC_OK) {
             return res;
         }
     }
     return RC_OK;
+}
+
+/* Direction of the most recent edge: +1 forward, -1 reverse. */
+int8_t drv_encoder_dir(rc_side_t side)
+{
+    return (side > RC_SIDE_RIGHT) ? (int8_t)0 : encs[side].dir;
 }
 
 /* Raw click count since boot for one wheel - never resets. */
@@ -259,12 +283,10 @@ int32_t drv_encoder_speed_mm_s(rc_side_t side)
      * immediately. */
     speed = (int32_t)((RC_ENC_UM_PER_TICK * 1000UL) / period);
 
-    /* A single-channel encoder disc cannot tell which way the wheel is
-     * spinning (see drv_encoder.h) - only *how fast* clicks are arriving.
-     * So direction is borrowed from the last duty command sent to the
-     * motor (drv_motor_get(), in drv_motor.c/h): if we last told the
-     * wheel to go backward, treat the speed as negative. */
-    if (drv_motor_get(side) < 0) {
+    /* Direction comes from channel B, sampled in the ISR on the last edge,
+     * so a wheel that is still coasting backwards after a reversal reads
+     * negative even though the motor has already been told to go forward. */
+    if (encs[side].dir < 0) {
         speed = -speed;
     }
     return speed;

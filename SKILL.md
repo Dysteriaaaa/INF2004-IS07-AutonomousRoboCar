@@ -38,8 +38,10 @@ quality, resource efficiency and system robustness.
 | FPU | **None.** Cortex-M0+. Everything is integer or fixed point |
 
 The project brief says "Pico C SDK". The port only pulls the SDK in for the
-optional USB-CDC console, and uses TinyUSB from it rather than its CMake build.
-If that matters for marking, confirm with the module lead.
+USB-CDC console, and uses TinyUSB from it rather than its CMake build. On this
+car that console is **mandatory** (`CONSOLE=usb_cdc`): GP0/GP1, the port's
+default UART0, are the left wheel encoder. If that matters for marking,
+confirm with the module lead.
 
 ## Repo layout
 
@@ -68,10 +70,19 @@ in `documents/Robo_Pico.pdf` (its text is glyph-encoded, so the board images
 have to be extracted and read); signal assignments come from
 `core/rc_config.h` and section 2 of the Week 6 design review. Facts worth
 keeping: the Robo Pico has **seven** Grove ports (1 on the left edge, 7 on
-the right edge, 2-6 along the bottom), which is why GP6 and GP7 are on
-non-adjacent ports; the silkscreen carries **GP26 on both Grove 5 and
-Grove 6**; and the two blue parts at the bottom corners are WS2812 RGB LEDs
-on GP18, not buttons (the buttons are GP20/GP21).
+the right edge, 2-6 along the bottom); the silkscreen carries **GP26 on both
+Grove 5 and Grove 6**, so line sensor 2 on Grove 5 must have only its DO wire
+connected; the MAKER port shares GP2/GP3 with Grove 2 (the ultrasonic) and
+must stay empty; and the two blue parts at the bottom corners are WS2812 RGB
+LEDs on GP18, not buttons (the buttons are GP20/GP21).
+
+Current wiring, one Grove cable per device: Grove 1 = left encoder A/B
+(GP0/GP1), Grove 2 = HC-SR04 TRIG/ECHO (GP2/GP3), Grove 3 = IMU on I²C0
+(SDA GP4 / SCL GP5), Grove 4 = line sensor 1 DO (GP16), Grove 5 = line
+sensor 2 DO (GP6), Grove 6 = barcode AO/DO (GP26/GP27), Grove 7 = right
+encoder A/B (GP7/GP28). Motors on M1 (GP8/GP9) and M2 (GP10/GP11), scan
+servo on servo port 4 (GP15), status LED on GP19. Buzzer, buttons and UART
+are unused.
 
 `TEAM_GUIDE.md` is the onboarding document for team members with no prior
 C or embedded background: it explains the event bus, the non-blocking
@@ -146,7 +157,7 @@ Measured on the SMP=0 image:
 
 | Handler | Instructions | ~Time @125 MHz |
 |---|---|---|
-| `encoder_isr` | 18 | 0.2 µs |
+| `encoder_isr` | 18 (+1 GPIO read for channel B since the A/B change; re-measure) | 0.2 µs |
 | `timeout_handler` | 34 | 0.4 µs |
 | `barcode_isr` | 36 | 0.4 µs |
 | `trig_done_handler` | 36 | 0.4 µs |
@@ -227,9 +238,10 @@ These are in `docs/HARDWARE.md` in full. Summary:
 
 | Conflict | Resolution |
 |---|---|
-| Stock I²C driver hardcodes **I²C0 to GP8/GP9**, which are the left motor pins | Use I²C1, and patch its pin table from GP6/GP7 to **GP2/GP3** (Grove 2 / Maker port) |
-| Port defaults `BOARD_LED_PIN` to **GP16**, needed for the ultrasonic trigger | Change it to GP19 in `sysdef.h`; the Pico W's on-board LED is on the radio, not an RP2040 pin |
-| Kernel's physical timer is built on the **PWM block** | Slices 4, 5, 6 are taken by motors and servos. This tree uses RP2040 TIMER alarms instead, which the kernel does not touch |
+| Stock I²C driver hardcodes **I²C0 to GP8/GP9**, which are the left motor pins | The IMU is on Grove 3 (GP4/GP5), which is I²C0 in silicon; patch the **unit-0** pin table from GP8/GP9 to **GP4/GP5** and open `"iica"`. SDA is GP4, SCL is GP5 |
+| Port defaults `BOARD_LED_PIN` to **GP16**, which is line sensor 1 | Change it to GP19 in `sysdef.h`; the Pico W's on-board LED is on the radio, not an RP2040 pin |
+| Port's default console is **UART0 on GP0/GP1**, which is the left encoder | Build with `CONSOLE=usb_cdc`; the console rides the Pico's own USB port |
+| Kernel's physical timer is built on the **PWM block** | Slices 4, 5, 7 are taken by motors and the servo. This tree uses RP2040 TIMER alarms instead, which the kernel does not touch |
 | **HC-SR04 ECHO is 5 V**; RP2040 is not 5 V tolerant | 1 kΩ / 2 kΩ divider. Skipping this destroys the Pico |
 | Robo Pico uses **two PWM pins per motor**, not PWM + direction | Handled in `drv_motor.c` |
 
@@ -293,13 +305,13 @@ git clone https://github.com/sirfonzie/mtk3smp-rp2040.git
 # move the port's own app_program/*.c aside - it defines its own usermain
 
 cd build_make
-make -j8            # SMP=0, start here
-make SMP=1 -j8      # dual core
+make CONSOLE=usb_cdc PICO_SDK_PATH=<pico-sdk> -j8          # SMP=0, start here
+make CONSOLE=usb_cdc PICO_SDK_PATH=<pico-sdk> SMP=1 -j8    # dual core
 ```
 
-Flash by holding BOOTSEL and copying `mtk3pico_smp0_uart.uf2` to the `RPI-RP2`
-drive. Console is UART0 on GP0/GP1 at 115200 8N1, so a USB-serial adapter is
-needed.
+Flash by holding BOOTSEL and copying the `.uf2` from `build_make/` to the
+`RPI-RP2` drive. The console is the Pico's own USB port (`CONSOLE=usb_cdc` is
+mandatory — GP0/GP1 are the left encoder), so no USB-serial adapter is used.
 
 ## SMP rules, from the port's qualification notes
 

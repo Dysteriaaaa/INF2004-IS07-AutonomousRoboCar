@@ -23,46 +23,64 @@
 #define RC_PIN_MOTOR_R_A        (10U)   /* M2A, PWM slice 5 chan A */
 #define RC_PIN_MOTOR_R_B        (11U)   /* M2B, PWM slice 5 chan B */
 
-#define RC_PIN_SERVO_SCAN       (12U)   /* Servo port 1, slice 6 chan A */
-#define RC_PIN_SERVO_SPARE      (13U)   /* Servo port 2, slice 6 chan B */
-
-#define RC_PIN_BUZZER           (22U)
-#define RC_PIN_BTN_1            (20U)
-#define RC_PIN_BTN_2            (21U)
-#define RC_PIN_NEOPIXEL         (18U)
+/* Servo header: GP12..GP15 are servo ports 1..4. The scan servo is on
+ * port 4 (GP15, PWM slice 7 chan B). Ports 1-3 are free. */
+#define RC_PIN_SERVO_SCAN       (15U)
 
 /* ------------------------------------------------------------------ *
  *  Chosen by us. Move these if your wiring differs.
+ *
+ *  Each sensor below sits on one Robo Pico Grove socket, so each is one
+ *  4-wire Grove cable: GND, 3V3, and the two GPIOs listed. The only
+ *  exception is the status LED, which hangs off the breakout header.
  * ------------------------------------------------------------------ */
 
-/* Wheel encoders. GP4/GP5 are Grove port 3, so both fit one cable. */
-#define RC_PIN_ENC_L            (4U)
-#define RC_PIN_ENC_R            (5U)
+/* Wheel encoders, two-channel (A/B). Channel A raises the edge interrupt;
+ * channel B is sampled at that instant to get direction. If a wheel reads
+ * backwards, swap that encoder's A and B wires rather than adding a sign
+ * in software.
+ *
+ * Left  = Grove 1 (GP0/GP1). Right = Grove 7 (GP7/GP28).
+ *
+ * GP0/GP1 are also UART0, the port's default console. This build MUST use
+ * the USB console (make CONSOLE=usb_cdc) - a UART build would drive GP0 as
+ * TX and fight the encoder. */
+#define RC_PIN_ENC_L_A          (0U)
+#define RC_PIN_ENC_L_B          (1U)
+#define RC_PIN_ENC_R_A          (7U)
+#define RC_PIN_ENC_R_B          (28U)
 
-/* HC-SR04. GP16/GP17 are Grove port 4.
+/* HC-SR04 on Grove 2 (GP2/GP3).
  * ECHO is 5 V on this module and MUST go through a divider. See HARDWARE.md. */
-#define RC_PIN_ULTRA_TRIG       (16U)
-#define RC_PIN_ULTRA_ECHO       (17U)
+#define RC_PIN_ULTRA_TRIG       (2U)
+#define RC_PIN_ULTRA_ECHO       (3U)
 
-/* IR line sensors, digital comparator output (DOUT). */
-#define RC_PIN_IR_LINE_L        (6U)
-#define RC_PIN_IR_LINE_R        (7U)
+/* IR line sensors, digital comparator output (DOUT) only.
+ * Sensor 1 (left) = Grove 4 (GP16). Sensor 2 (right) = Grove 5 (GP6).
+ *
+ * Grove 5's second signal pin is GP26, which is the barcode sensor's
+ * analogue output below. Connect ONLY the line sensor's DO wire on Grove 5;
+ * leave its AO unconnected or it will short onto the barcode AOUT. */
+#define RC_PIN_IR_LINE_L        (16U)
+#define RC_PIN_IR_LINE_R        (6U)
 
-/* IR barcode sensor. Analogue path is used for decoding, digital as backup. */
+/* IR barcode sensor on Grove 6 (GP26/GP27). Both are inputs to the Pico:
+ * AOUT on the ADC for calibration, DOUT on an edge interrupt for decoding. */
 #define RC_PIN_IR_BARCODE_A     (26U)   /* ADC channel 0 */
 #define RC_ADC_CH_IR_BARCODE    (0U)
 #define RC_PIN_IR_BARCODE_D     (27U)
 
-/* Liveness LED. The port defaults BOARD_LED_PIN to GP16, which we need for
- * the ultrasonic trigger, so override it in sysdef.h to this pin. */
+/* Liveness LED on the GPIO breakout header. The port defaults
+ * BOARD_LED_PIN to GP16, which is line sensor 1 above, so override it in
+ * sysdef.h to this pin. */
 #define RC_PIN_STATUS_LED       (19U)
 
-/* IMU sits on I2C1. The stock driver maps I2C1 to GP6/GP7, which collides
- * with the line sensors above, so the driver pin table is patched to
- * GP2/GP3 (Robo Pico Grove 2 / Maker port). See HARDWARE.md. */
-#define RC_I2C_UNIT_IMU         (1U)
-#define RC_PIN_I2C1_SDA         (2U)
-#define RC_PIN_I2C1_SCL         (3U)
+/* IMU on Grove 3 (GP4/GP5). Those pins are I2C0 SDA/SCL in silicon, so the
+ * IMU is on I2C unit 0. The stock driver maps I2C0 to GP8/GP9 (the left
+ * motor), so its unit-0 pin table is patched to GP4/GP5. See HARDWARE.md. */
+#define RC_I2C_UNIT_IMU         (0U)
+#define RC_PIN_I2C0_SDA         (4U)
+#define RC_PIN_I2C0_SCL         (5U)
 
 /* LSM303DLHC has two separate I2C addresses, one per die. */
 #define RC_I2C_ADDR_ACCEL       (0x19U)

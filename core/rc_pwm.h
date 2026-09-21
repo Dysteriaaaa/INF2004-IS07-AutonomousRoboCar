@@ -17,9 +17,9 @@
  *  Slice = (gpio >> 1) & 7:
  *     GP8/GP9   slice 4   left motor,  both channels, same frequency
  *     GP10/GP11 slice 5   right motor, both channels, same frequency
- *     GP12/GP13 slice 6   servos at 50 Hz
+ *     GP14/GP15 slice 7   scan servo on GP15 (servo port 4) at 50 Hz
  *
- *  Slices 4, 5 and 6 are therefore unavailable to StartPhysicalTimer,
+ *  Slices 4, 5 and 7 are therefore unavailable to StartPhysicalTimer,
  *  which on this port is built on the PWM block.
  */
 

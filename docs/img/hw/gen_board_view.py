@@ -21,7 +21,7 @@ Out:  docs/img/hw/robopico_board_view.png
 import os
 from PIL import Image, ImageDraw, ImageFont
 
-W, H = 2000, 1560
+W, H = 2000, 1600
 
 # ----------------------------------------------------------------- palette
 BG          = "#ffffff"
@@ -108,7 +108,7 @@ def lead(pts):
 
 
 # ----------------------------------------------------------------- heading
-ctext(W / 2, 34, "Robo Pico \u2014 Hardware Integration Pin Map", F_TITLE)
+ctext(W / 2, 34, "Robo Pico \u2014 Board Wiring View", F_TITLE)
 ctext(W / 2, 88,
       "INF2004-IS07 autonomous robotic car   \u00b7   port positions per the Cytron Robo Pico datasheet   \u00b7   "
       "signal assignments per core/rc_config.h",
@@ -183,14 +183,14 @@ ctext(bx(0.615), by(0.035), "MOTOR 1", F_PORT, USED_EDGE)
 ctext(bx(0.615), by(0.072), "M1B  M1A", F_TINY, USED_EDGE)
 ctext(bx(0.615), by(0.096), "GP9   GP8", F_PIN, USED_EDGE)
 
-# SERVO header: four 3-pin ports, only port 1 (GP12) is used
+# SERVO header: four 3-pin ports, only port 4 (GP15) is used
 box(bx(0.78), by(0.03), bx(0.95), by(0.145), FREE_FILL, FREE_EDGE, r=5)
 ctext(bx(0.865), by(0.038), "SERVO", F_PORT, MUTED)
 _sx = bx(0.792)
 for _n, _gp in enumerate(("12", "13", "14", "15")):
     _w, _g = 26, 6
     _x0 = _sx + _n * (_w + _g)
-    _used = (_n == 0)
+    _used = (_n == 3)
     d.rounded_rectangle([_x0, by(0.078), _x0 + _w, by(0.135)], radius=4,
                         fill=USED_FILL if _used else "#ffffff",
                         outline=USED_EDGE if _used else FREE_EDGE, width=2)
@@ -200,14 +200,14 @@ for _n, _gp in enumerate(("12", "13", "14", "15")):
 box(BX - 4, by(0.52), bx(0.145), by(0.665), USED_FILL, USED_EDGE, r=5)
 ctext(bx(0.070), by(0.535), "GROVE 1", F_TINY, USED_EDGE)
 ctext(bx(0.070), by(0.567), "GP0 / GP1", F_PIN, USED_EDGE)
-ctext(bx(0.070), by(0.602), "TX / RX", F_TINY, MUTED)
+ctext(bx(0.070), by(0.602), "enc L  A / B", F_TINY, MUTED)
 ctext(bx(0.070), by(0.630), "GND 3V3", F_TINY, MUTED)
 
 # ---- right edge: GROVE 7
 box(bx(0.855), by(0.52), BX + BW + 4, by(0.665), USED_FILL, USED_EDGE, r=5)
 ctext(bx(0.930), by(0.535), "GROVE 7", F_TINY, USED_EDGE)
-ctext(bx(0.930), by(0.567), "GP28 / GP7", F_PIN, USED_EDGE)
-ctext(bx(0.930), by(0.602), "GP7 → line R", F_TINY, MUTED)
+ctext(bx(0.930), by(0.567), "GP7 / GP28", F_PIN, USED_EDGE)
+ctext(bx(0.930), by(0.602), "enc R  A / B", F_TINY, MUTED)
 ctext(bx(0.930), by(0.630), "3V3 GND", F_TINY, MUTED)
 
 # ---- buzzer + mute switch (right of the socket)
@@ -228,10 +228,11 @@ for f in (0.035, 0.94):
 ctext(bx(0.052), by(0.755), "GP18 RGB", F_TINY, MUTED)
 ctext(bx(0.925), by(0.755), "GP18 RGB", F_TINY, MUTED)
 
-# ---- MAKER port (QWIIC / Stemma QT, shares GP2/GP3 with Grove 2)
-box(bx(0.042), by(0.86), bx(0.132), by(0.95), WARN_FILL, WARN_EDGE, r=5)
-ctext(bx(0.087), by(0.872), "MAKER", F_TINY, WARN_EDGE)
-ctext(bx(0.087), by(0.900), "GP2/3", F_TINY, WARN_EDGE)
+# ---- MAKER port (QWIIC / Stemma QT) shares GP2/GP3 with Grove 2, which is
+# the ultrasonic TRIG/ECHO here, so it must stay empty.
+box(bx(0.042), by(0.86), bx(0.132), by(0.95), FREE_FILL, FREE_EDGE, r=5)
+ctext(bx(0.087), by(0.872), "MAKER", F_TINY, MUTED)
+ctext(bx(0.087), by(0.900), "GP2/3", F_TINY, MUTED)
 
 # ---- bottom edge Grove ports 2..6
 groves = [
@@ -267,18 +268,19 @@ devbox(980, 196, 1240, 356, "Left motor",
         "~drv_motor \u2022 Motion task"])
 
 devbox(1260, 196, 1560, 356, "Scan servo (SG90)",
-       ["Pan bracket for the HC-SR04", "GP12 \u2014 servo port 1", "~PWM slice 6 ch A, 50 Hz",
+       ["Pan bracket for the HC-SR04", "GP15 \u2014 servo port 4", "~PWM slice 7 ch B, 50 Hz",
         "~drv_servo \u2022 Scan task"])
 
 lead([(480, 356), (480, 400), (bx(0.245), 400), (bx(0.245), by(0.02))])
 lead([(830, 356), (830, 404), (bx(0.42), 404), (bx(0.42), by(0.025))])
 lead([(1110, 356), (1110, 392), (bx(0.615), 392), (bx(0.615), by(0.025))])
-lead([(1410, 356), (1410, 380), (bx(0.805), 380), (bx(0.805), by(0.03))])
+lead([(1410, 356), (1410, 380), (bx(0.925), 380), (bx(0.925), by(0.03))])
 
 # ---- left device box: Grove 1 console
-devbox(40, 700, 560, 860, "UART0 console",
-       ["USB\u2013serial adapter, 115200 8N1", "GP0 TX / GP1 RX \u2014 GROVE 1",
-        "~tm_printf output and the console", "~telemetry sink until WiFi is up"])
+devbox(40, 700, 560, 860, "Left wheel encoder (A/B)",
+       ["A \u2192 GP0 (edge IRQ), B \u2192 GP1", "GND, 3V3, A, B \u2014 GROVE 1, one cable",
+        "~B sampled in the ISR for direction", "~Motion task @ 50 Hz \u2022 drv_encoder"],
+       fill=WARN_FILL, edge=WARN_EDGE)
 lead([(560, 780), (BX - 4, 780)])
 
 # ---- left lower: status LED
@@ -289,32 +291,32 @@ devbox(40, 895, 560, 1035, "Status LED (external)",
 lead([(560, 960), (575, 960), (575, by(0.365)), (bx(0.125), by(0.365))])
 
 # ---- right device box: Grove 7 line sensor right
-devbox(1440, 700, 1960, 860, "IR line sensor \u2014 right",
-       ["ST188 / TCRT5000 reflective module", "DOUT \u2192 GP7 \u2014 GROVE 7",
-        "~polled by the Sense task @ 200 Hz", "~drv_ir \u2022 sub_line"])
+devbox(1440, 700, 1960, 860, "Right wheel encoder (A/B)",
+       ["A \u2192 GP7 (edge IRQ), B \u2192 GP28", "GND, 3V3, A, B \u2014 GROVE 7, one cable",
+        "~B sampled in the ISR for direction", "~Motion task @ 50 Hz \u2022 drv_encoder"])
 lead([(1440, 780), (BX + BW + 4, 780)])
 
 # ---- right lower: on-board unused
 devbox(1440, 895, 1960, 1035, "On-board, not used by this project",
-       ["Piezo buzzer GP22  \u00b7  2 \u00d7 RGB LED GP18", "Buttons GP20 / GP21  \u00b7  servo ports 2\u20134",
-        "~GP13/GP14/GP15 free \u00b7 GP28 free", "~reserved for start/stop + fault beep"],
+       ["Piezo buzzer GP22  \u00b7  2 \u00d7 RGB LED GP18", "Buttons GP20 / GP21  \u00b7  servo ports 1\u20133",
+        "~GP12/GP13/GP14 free \u00b7 GP17 free \u00b7 MAKER port", "~console is USB, so no UART pins"],
        fill=FREE_FILL, edge=FREE_EDGE)
 
 # ---- bottom device boxes, one per Grove port
 bottom = [
-    ("GROVE 2", "LSM303DLHC IMU", ["Accelerometer + magnetometer", "SDA GP2 / SCL GP3 \u2014 I\u00b2C1",
-                                   "~0x19 accel \u00b7 0x1E mag \u00b7 no gyro",
-                                   "~Sense task @ 100 Hz \u2022 drv_imu"], WARN_FILL, WARN_EDGE),
-    ("GROVE 3", "Wheel encoders", ["2 \u00d7 slotted optical encoder", "ENC_L GP4 / ENC_R GP5",
-                                   "~rising-edge IRQ in the IO_BANK0 ISR",
-                                   "~Motion task @ 50 Hz \u2022 drv_encoder"], DEV_FILL, DEV_EDGE),
-    ("GROVE 4", "HC-SR04 ultrasonic", ["TRIG GP16 / ECHO GP17", "ECHO is 5 V \u2014 needs 1k/2k divider",
+    ("GROVE 2", "HC-SR04 ultrasonic", ["TRIG GP2 / ECHO GP3", "ECHO is 5 V \u2014 needs 1k/2k divider",
                                        "~TIMER alarms end TRIG and time out ECHO",
                                        "~Scan task \u2022 drv_ultrasonic"], WARN_FILL, WARN_EDGE),
-    ("GROVE 5", "IR line sensor \u2014 left", ["ST188 / TCRT5000 reflective module", "DOUT \u2192 GP6",
-                                               "~polled by the Sense task @ 200 Hz",
-                                               "~drv_ir \u2022 sub_line"], DEV_FILL, DEV_EDGE),
-    ("GROVE 6", "IR barcode sensor", ["AOUT \u2192 GP26 (ADC0)", "DOUT \u2192 GP27, both-edge IRQ",
+    ("GROVE 3", "LSM303DLHC IMU", ["Accelerometer + magnetometer", "SDA GP4 / SCL GP5 \u2014 I\u00b2C0",
+                                   "~0x19 accel \u00b7 0x1E mag \u00b7 no gyro",
+                                   "~Sense task @ 100 Hz \u2022 drv_imu"], WARN_FILL, WARN_EDGE),
+    ("GROVE 4", "IR line sensor 1 (left)", ["MH-Sensor-Series TCRT5000 + LM393", "DO \u2192 GP16  (AO unused)",
+                                            "~polled by the Sense task @ 200 Hz",
+                                            "~drv_ir \u2022 sub_line"], WARN_FILL, WARN_EDGE),
+    ("GROVE 5", "IR line sensor 2 (right)", ["MH-Sensor-Series TCRT5000 + LM393", "DO \u2192 GP6  \u2014  AO MUST stay unwired",
+                                             "~Grove 5 pin 2 is GP26 = barcode AO",
+                                             "~drv_ir \u2022 sub_line"], WARN_FILL, WARN_EDGE),
+    ("GROVE 6", "IR barcode sensor", ["AO \u2192 GP26 (ADC0)", "DO \u2192 GP27, both-edge IRQ",
                                       "~every edge timestamped in the ISR",
                                       "~bar/space widths \u2192 Code 39 \u2022 sub_barcode"], DEV_FILL, DEV_EDGE),
 ]
@@ -332,15 +334,17 @@ ny = 1332
 d.text((60, ny), "Conflicts handled (details in docs/HARDWARE.md \u00a71):", font=F_NOTEB, fill=INK)
 ny += 32
 notes = [
-    "1.  I\u00b2C1 re-pinned from GP6/GP7 to GP2/GP3 in the port's i2c_rp2040.c \u2014 the stock mapping collides with the two IR line sensors, "
-    "and I\u00b2C0's GP8/GP9 are the left motor.",
-    "2.  BOARD_LED_PIN moved from GP16 to GP19 in sysdef.h \u2014 GP16 is the ultrasonic TRIG. The Pico W's on-board LED is wired to the "
-    "CYW43439 radio, not to an RP2040 pin, so an external LED is required.",
-    "3.  HC-SR04 ECHO outputs 5 V and the RP2040 is not 5 V tolerant \u2014 1 k\u03a9 from ECHO to GP17 and 2 k\u03a9 from GP17 to GND (3.33 V at the pin). "
+    "1.  GP0/GP1 are UART0, the port's default console, and also the left encoder \u2014 so every build MUST be CONSOLE=usb_cdc. "
+    "The console comes out of the Pico's own USB port.",
+    "2.  GP4 is I\u00b2C0 SDA and GP5 is I\u00b2C0 SCL in silicon (fixed). The port's I\u00b2C0 driver defaults to GP8/GP9 (left motor), so its unit-0 "
+    "pin table is re-pinned to GP4/GP5 and the IMU opens \"iica\". Wire SDA\u2192GP4, SCL\u2192GP5.",
+    "3.  HC-SR04 ECHO outputs 5 V and the RP2040 is not 5 V tolerant \u2014 1 k\u03a9 from ECHO to GP3 and 2 k\u03a9 from GP3 to GND (3.33 V at the pin). "
     "Connecting it directly destroys the board.",
-    "4.  The Robo Pico silkscreen carries GP26 on BOTH Grove 5 and Grove 6 \u2014 verify against your own board before cabling, and keep the "
-    "barcode sensor's ADC pin clear of whatever shares Grove 5.",
-    "5.  PWM slices 4, 5 and 6 are taken by the motors and the servo, so the kernel's PWM-based StartPhysicalTimer cannot use them. "
+    "4.  BOARD_LED_PIN moved from GP16 to GP19 in sysdef.h \u2014 GP16 is line sensor 1. The Pico W's on-board LED is wired to the "
+    "CYW43439 radio, not to an RP2040 pin, so an external LED is required.",
+    "5.  GP26 is on BOTH Grove 6 pin 1 and Grove 5 pin 2. Line sensor 2 on Grove 5: wire GND, VCC and DO only, or its AO shorts onto the barcode "
+    "sensor's AO. MAKER shares GP2/GP3 with Grove 2 — leave it empty.",
+    "6.  PWM slices 4, 5 and 7 are taken by the motors and the servo, so the kernel's PWM-based StartPhysicalTimer cannot use them. "
     "This tree uses the RP2040 TIMER alarms instead, which the kernel never touches.",
 ]
 for n in notes:

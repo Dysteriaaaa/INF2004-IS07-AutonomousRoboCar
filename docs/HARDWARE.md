@@ -10,7 +10,7 @@ out.
 
 ---
 
-## 1. Read this first: four things that will cost you a day each
+## 1. Read this first: five things that will cost you a day each
 
 These are not edge cases. Each one is a conflict you will hit in the first
 week if nobody tells you.
@@ -38,30 +38,34 @@ error in your terrain analysis report.
 `device/i2c/sysdepend/rp2040/i2c_rp2040.c` hardcodes its pins:
 
 - **I²C0 → GP8 / GP9**. On Robo Pico those are **M1A and M1B**, the left motor.
-- **I²C1 → GP6 / GP7**. Usable, but GP6 and GP7 sit on *different* Grove ports
-  (5 and 7), so you cannot connect them with one Grove cable.
+- **I²C1 → GP6 / GP7**. GP6 is line sensor 2 in this build, and GP6/GP7 sit on
+  *different* Grove ports (5 and 7) anyway.
 
-Fix: patch the I²C1 pin table to **GP2 / GP3**, which is Robo Pico's Grove 2
-and the QWIIC / Stemma QT Maker port. In `i2c_rp2040.c`, change the unit-1
-branch:
+The IMU lives on **Grove 3 (GP4 / GP5)**. In RP2040 silicon GP4 can only be
+`I2C0 SDA` and GP5 only `I2C0 SCL` — the function is fixed per pin, not
+configurable — so the IMU is on **unit 0**, opened as `"iica"`, and the fix is
+to re-pin the **unit-0** branch of `i2c_rp2040.c` from GP8/GP9 to GP4/GP5:
 
 ```c
-/* was GP6/GP7 */
-out_w(GPIO_CTRL(2), GPIO_CTRL_FUNCSEL_I2C);
-out_w(GPIO(2), GPIO_IE | GPIO_DRIVE_4MA | GPIO_PUE | GPIO_SHEMITT);
-out_w(GPIO_CTRL(3), GPIO_CTRL_FUNCSEL_I2C);
-out_w(GPIO(3), GPIO_IE | GPIO_DRIVE_4MA | GPIO_PUE | GPIO_SHEMITT);
+/* was GP8/GP9 */
+out_w(GPIO_CTRL(4), GPIO_CTRL_FUNCSEL_I2C);
+out_w(GPIO(4), GPIO_IE | GPIO_DRIVE_4MA | GPIO_PUE | GPIO_SHEMITT);
+out_w(GPIO_CTRL(5), GPIO_CTRL_FUNCSEL_I2C);
+out_w(GPIO(5), GPIO_IE | GPIO_DRIVE_4MA | GPIO_PUE | GPIO_SHEMITT);
 ```
 
-Per the Robo Pico datasheet, GP2 is `SDA1` and GP3 is `SCL1`, so this is a
-legal mapping.
+Wire **SDA → GP4** and **SCL → GP5**. Getting these the other way round is
+the most common reason an I²C device never answers.
+
+Leave unit 1 untouched and never open `"iicb"`: its default pins are GP6/GP7,
+which are now line sensor 2 and the right encoder.
 
 ### 1.3 The liveness LED default sits on a pin you need
 
 The port defaults `BOARD_LED_PIN` to **GP16**, which is half of Grove 4 and
-which this framework uses for the ultrasonic trigger. You cannot fall back to
-the Pico W's on-board LED, because it hangs off the CYW43439 radio rather than
-an RP2040 pin.
+which this framework uses for line sensor 1. You cannot fall back to the
+Pico W's on-board LED, because it hangs off the CYW43439 radio rather than an
+RP2040 pin.
 
 Fix: change `BOARD_LED_PIN` in
 `include/sys/sysdepend/pico_rp2040/sysdef.h` to **GP19** (matching
@@ -75,11 +79,25 @@ timer.
 
 - Slice 4 (GP8/GP9): left motor
 - Slice 5 (GP10/GP11): right motor
-- Slice 6 (GP12/GP13): servos
+- Slice 7 (GP14/GP15): scan servo on GP15
 
-Slices 0–3 and 7 remain free. This framework does not use `StartPhysicalTimer`
+Slices 0–3 and 6 remain free. This framework does not use `StartPhysicalTimer`
 at all; it uses the RP2040 **TIMER** block's alarms instead, which are
 untouched by the kernel.
+
+### 1.5 The console must be USB, not UART
+
+GP0/GP1 are the port's default UART0 console **and** the left encoder's A/B
+channels. A UART build drives GP0 as TX and the encoder never counts. Every
+image for this car is built with
+
+```sh
+make CONSOLE=usb_cdc PICO_SDK_PATH=<your pico-sdk>
+```
+
+so `tm_printf` and the console telemetry sink come out of the Pico's own USB
+port. Confirm after the first boot that GP0 is not being driven: with the
+motor off, `drv_encoder_count(RC_SIDE_LEFT)` must stay at zero.
 
 ---
 
@@ -111,34 +129,37 @@ datasheet.
 
 | GPIO | Use | Owner | Fixed? | Notes |
 |---|---|---|---|---|
-| GP0 | UART0 TX, console | port | board | Grove 1. Needed for `tm_printf` on a UART build |
-| GP1 | UART0 RX, console | port | board | Grove 1 |
-| GP2 | I²C1 SDA → IMU | Buddy 4 | chosen | Grove 2 / Maker port, after the §1.2 patch |
-| GP3 | I²C1 SCL → IMU | Buddy 4 | chosen | Grove 2 / Maker port |
-| GP4 | Left encoder | Buddy 2 | chosen | Grove 3 |
-| GP5 | Right encoder | Buddy 2 | chosen | Grove 3 |
-| GP6 | IR line sensor, left (DOUT) | Buddy 3 | chosen | Grove 5 pin 1 |
-| GP7 | IR line sensor, right (DOUT) | Buddy 3 | chosen | Grove 7 pin 1 |
+| GP0 | Left encoder A | Buddy 2 | chosen | Grove 1. Edge interrupt. Also UART0 TX — see §1.5 |
+| GP1 | Left encoder B | Buddy 2 | chosen | Grove 1. Sampled for direction |
+| GP2 | Ultrasonic TRIG | Buddy 5 | chosen | Grove 2 |
+| GP3 | Ultrasonic ECHO | Buddy 5 | chosen | Grove 2. **Needs a divider**, see §4.5 |
+| GP4 | I²C0 SDA → IMU | Buddy 4 | chosen | Grove 3, after the §1.2 patch |
+| GP5 | I²C0 SCL → IMU | Buddy 4 | chosen | Grove 3 |
+| GP6 | IR line sensor 2, right (DOUT) | Buddy 3 | chosen | Grove 5 pin 1. **Connect DO only**, see the note below |
+| GP7 | Right encoder A | Buddy 2 | chosen | Grove 7. Edge interrupt |
 | GP8 | Motor M1A | Buddy 2 | **board** | Slice 4A |
 | GP9 | Motor M1B | Buddy 2 | **board** | Slice 4B |
 | GP10 | Motor M2A | Buddy 2 | **board** | Slice 5A |
 | GP11 | Motor M2B | Buddy 2 | **board** | Slice 5B |
-| GP12 | Scan servo | Buddy 5 | **board** | Servo port 1, slice 6A |
-| GP13 | Spare servo | — | **board** | Servo port 2, slice 6B |
-| GP14, GP15 | Servo ports 3, 4 | — | **board** | Unused |
-| GP16 | Ultrasonic TRIG | Buddy 5 | chosen | Grove 4. See §1.3 |
-| GP17 | Ultrasonic ECHO | Buddy 5 | chosen | Grove 4. **Needs a divider**, see §4.5 |
+| GP12, GP13, GP14 | Servo ports 1, 2, 3 | — | **board** | Unused |
+| GP15 | Scan servo | Buddy 5 | **board** | Servo port 4, slice 7B |
+| GP16 | IR line sensor 1, left (DOUT) | Buddy 3 | chosen | Grove 4 pin 1. See §1.3 |
+| GP17 | — | — | — | Grove 4 pin 2, unused |
 | GP18 | NeoPixel | — | **board** | Unused |
-| GP19 | Status LED | shared | chosen | External LED + resistor |
-| GP20, GP21 | Buttons | — | **board** | Useful as a run/stop switch |
-| GP22 | Piezo buzzer | — | **board** | Has a mute switch on the board |
+| GP19 | Status LED | shared | chosen | Breakout header. External LED + resistor |
+| GP20, GP21 | Buttons | — | **board** | Unused |
+| GP22 | Piezo buzzer | — | **board** | Unused |
 | GP23, GP24, GP25, GP29 | **Radio reserved** | — | **board** | CYW43439. Do not touch |
-| GP26 | IR barcode, AOUT | Buddy 3 | chosen | ADC0. Grove 5/6 |
-| GP27 | IR barcode, DOUT | Buddy 3 | chosen | Grove 6 |
-| GP28 | free / VBAT sense | — | board | ADC2. VBAT only if you solder the jumper |
+| GP26 | IR barcode, AOUT | Buddy 3 | chosen | ADC0. Grove 6 pin 1 — and Grove 5 pin 2 |
+| GP27 | IR barcode, DOUT | Buddy 3 | chosen | Grove 6 pin 2. Edge interrupt |
+| GP28 | Right encoder B | Buddy 2 | chosen | Grove 7. Sampled for direction |
 
-> The Robo Pico datasheet lists GP26 on both Grove 5 and Grove 6. Verify
-> against the silkscreen on your actual board before you cable it up.
+> **GP26 is on two sockets.** The Robo Pico routes GP26 to Grove 6 pin 1 *and*
+> Grove 5 pin 2. Line sensor 2 sits on Grove 5 and the barcode sensor on
+> Grove 6, so on Grove 5 connect only the line sensor's **DO** wire (to GP6)
+> and leave its **AO** pin unconnected — otherwise the two sensors' analogue
+> outputs are shorted together on GP26. Verify against the silkscreen on your
+> own board before cabling.
 
 Everything above is defined in one place, `core/rc_config.h`. No other file
 hard-codes a GPIO number.
@@ -209,12 +230,16 @@ state are owned by **processor 1** (physical core 0). Its service task must be
 pinned `TP_PRC1`. Other tasks may only read its published status. Same for
 TinyUSB: any task may call `tm_printf`, but nothing may call TinyUSB directly.
 
+**The console is USB, not UART.** GP0/GP1 belong to the left encoder (§1.5),
+so the console sink and every `tm_printf` come out of the Pico's own USB port
+via TinyUSB. No USB-serial adapter and no Grove port is used for the console.
+
 ---
 
 ### 4.2 Buddy 2 — Motion control
 
-**Hardware:** 2 × DC gear motors into the Robo Pico terminals, 2 × slotted
-optical encoders.
+**Hardware:** 2 × DC gear motors into the Robo Pico terminals, 2 × two-channel
+(A/B) encoders.
 
 **Wiring:**
 
@@ -222,8 +247,12 @@ optical encoders.
 |---|---|---|
 | Left motor | M1 terminal | M1A = GP8, M1B = GP9 |
 | Right motor | M2 terminal | M2A = GP10, M2B = GP11 |
-| Left encoder OUT | GP4 | Grove 3 |
-| Right encoder OUT | GP5 | Grove 3 |
+| Left encoder A / B | GP0 / GP1 | Grove 1: GND, 3V3, A, B — one cable |
+| Right encoder A / B | GP7 / GP28 | Grove 7: GND, 3V3, A, B — one cable |
+
+Each encoder's four wires map straight onto a Grove socket: GND to GND, VCC to
+3V3, A to the first signal pin, B to the second. Because GP0/GP1 are also the
+port's UART0, the build **must** be `CONSOLE=usb_cdc` (§1.5).
 
 Robo Pico uses **two PWM pins per motor**, not PWM-plus-direction. Forward is
 PWM on MxA with MxB low; reverse swaps them; brake is both high; coast is both
@@ -231,10 +260,13 @@ low. `drv_motor.c` handles this. Actual direction depends on how you wired the
 motor terminals — if a wheel spins backwards, swap that motor's two wires
 rather than adding a sign in software.
 
-**Encoder limitation:** these are single-channel, so **direction is not
-measurable from the disc**. `drv_encoder.c` takes direction from the last
-commanded motor value, which is correct except during the moment a wheel is
-still coasting after a reversal. Keep that in mind when tuning.
+**Direction comes from channel B.** A raises the edge interrupt and is
+counted; B is sampled inside that interrupt. At the instant A rises, B is low
+in one direction and high in the other, so `drv_encoder.c` reads the true
+direction from the wheel — including while it is still coasting after a
+reversal. Which sense is "forward" depends on how the encoder is mounted: if
+`drv_encoder_speed_mm_s()` reads negative while the car drives forward, swap
+that encoder's A and B wires rather than adding a sign in software.
 
 **Drivers required:** `rc_pwm` (in this tree, adds the missing clock divider),
 `rc_gpioirq` (in this tree). No kernel device driver.
@@ -244,7 +276,9 @@ still coasting after a reversal. Keep that in mind when tuning.
 1. Measure your wheel diameter and slot count. Set `RC_WHEEL_DIAM_MM`,
    `RC_ENC_SLOTS_PER_REV` and `RC_WHEEL_BASE_MM` in `rc_config.h`.
 2. Wheels off the ground. Command a fixed duty, log `drv_encoder_speed_mm_s`,
-   and confirm it is stable and roughly linear in duty.
+   and confirm it is stable, roughly linear in duty, and **positive** for a
+   forward command on both sides. Negative on one side means that encoder's
+   A and B are swapped.
 3. Tune the PID gains in `sub_motion_init()`. The shipped values are
    placeholders. Record the step responses — that is your PID tuning report.
 4. On the ground: command `sub_motion_forward_mm(1000)` ten times, measure
@@ -257,20 +291,28 @@ still coasting after a reversal. Keep that in mind when tuning.
 
 ### 4.3 Buddy 3 — IR line following and barcode
 
-**Hardware:** 3 × reflective IR modules. The bundle has datasheets for both
-the Waveshare **ST188 + LM393** board and the **TCRT5000**; either works.
-Two watch the line, one reads barcodes.
+**Hardware:** 3 × MH-Sensor-Series reflective IR modules (TCRT5000 + LM393;
+the Waveshare ST188 board is pin-compatible). Two watch the line, one reads
+barcodes. Each module has four pins: VCC, GND, DO (digital) and AO (analogue).
 
 **Wiring:**
 
-| Sensor | DOUT | AOUT | Note |
-|---|---|---|---|
-| Line, left | GP6 | — | Digital, polled at 200 Hz |
-| Line, right | GP7 | — | Digital, polled at 200 Hz |
-| Barcode | GP27 | GP26 (ADC0) | Digital is edge-interrupt driven |
+| Sensor | Socket | DO | AO | Note |
+|---|---|---|---|---|
+| Line 1, left | Grove 4 | GP16 | leave unconnected | Digital, polled at 200 Hz |
+| Line 2, right | Grove 5 | GP6 | **must be unconnected** | Digital, polled at 200 Hz |
+| Barcode | Grove 6 | GP27 | GP26 (ADC0) | DO is edge-interrupt driven, AO is for calibration |
+
+> **Line 2's AO must stay unconnected.** Grove 5's second signal pin is GP26,
+> which is the barcode sensor's AO on Grove 6. If you plug all four wires of
+> line sensor 2 into Grove 5, its analogue output is shorted onto the barcode
+> sensor's analogue output and neither reads correctly. Wire GND, VCC and DO
+> only.
 
 Each module has a **trim pot** setting the LM393 comparator threshold, and
-exposes the raw divider on AOUT.
+exposes the raw divider on AO. Only the barcode sensor's AO is wired to an ADC
+pin, so `drv_ir_read_raw()` works for that channel alone; calibrate the line
+sensors by watching DO flip.
 
 **Polarity warning.** On the Waveshare board, DOUT goes **LOW** over a
 reflective (white) surface and **HIGH** over a non-reflective (black) one, so
@@ -280,9 +322,11 @@ confidently drives off the table.
 
 **Calibration:**
 
-1. Hold the sensor over white track. Read AOUT with `drv_ir_read_raw()`.
+1. Hold the barcode sensor over white track. Read AO with `drv_ir_read_raw()`.
 2. Hold it over the black line. Read again.
-3. Set the trim pot so DOUT flips at roughly the midpoint of the two.
+3. Set the trim pot so DO flips at roughly the midpoint of the two. For the
+   two line sensors, which have no ADC, turn the pot until DO flips cleanly
+   as you slide the sensor across the line edge.
 4. Repeat under the lighting you will actually demo in. IR ambient from
    fluorescent tubes and sunlight are very different.
 
@@ -309,8 +353,9 @@ them from a Code 39 reference before you test decoding.
 
 **Hardware:** GY-511 (LSM303DLHC) breakout.
 
-**Wiring:** I²C1 after the §1.2 patch. SDA → GP2, SCL → GP3, VCC → 3V3,
-GND → GND. The module accepts 3–5 V.
+**Wiring:** Grove 3, on I²C0 after the §1.2 patch. **SDA → GP4, SCL → GP5**,
+VIN → 3V3, GND → GND. The module accepts 3–5 V. Leave INT1, INT2 and DRDY
+unconnected — the driver polls at 100 Hz and never uses them.
 
 | Die | I²C address |
 |---|---|
@@ -327,8 +372,8 @@ Two register-level traps that catch nearly everyone:
 
 `drv_imu.c` handles both.
 
-**Drivers required:** `device/i2c` (the port's driver, opened as `"iicb"` for
-unit 1), patched per §1.2.
+**Drivers required:** `device/i2c` (the port's driver, opened as `"iica"` for
+unit 0), patched per §1.2.
 
 **Setup:**
 
@@ -353,12 +398,13 @@ unit 1), patched per §1.2.
 
 | Signal | Pin | Note |
 |---|---|---|
-| Servo | GP12 | Robo Pico servo port 1 |
-| TRIG | GP16 | Grove 4 |
-| ECHO | GP17 | Grove 4, **through a divider** |
+| Servo | GP15 | Robo Pico servo port 4 |
+| TRIG | GP2 | Grove 2 |
+| ECHO | GP3 | Grove 2, **through a divider** |
+| VCC / GND | 3V3 / GND | Grove 2 |
 
 > **ECHO is a 5 V output and the RP2040 is not 5 V tolerant.** Do not connect
-> it directly. Use a divider: 1 kΩ from ECHO to GP17, 2 kΩ from GP17 to GND.
+> it directly. Use a divider: 1 kΩ from ECHO to GP3, 2 kΩ from GP3 to GND.
 > That gives 3.33 V at the pin. A level shifter works too. Skipping this is
 > the fastest way to destroy a Pico on this project.
 
@@ -418,17 +464,19 @@ cd mtk3smp-rp2040
 # drop this tree into app_program/ and add it to the makefile
 
 cd build_make
-make -j8              # single core, the conservative default
-make SMP=1 -j8        # dual core
+make CONSOLE=usb_cdc PICO_SDK_PATH=<pico-sdk> -j8          # single core
+make CONSOLE=usb_cdc PICO_SDK_PATH=<pico-sdk> SMP=1 -j8    # dual core
 ```
 
-Hold **BOOTSEL** while plugging in the Pico, then copy
-`build_make/mtk3pico_smp0_uart.uf2` to the `RPI-RP2` drive.
+Hold **BOOTSEL** while plugging in the Pico, then copy the resulting `.uf2`
+from `build_make/` to the `RPI-RP2` drive.
 
-Console is **UART0 on GP0/GP1, 115200 8N1**, so you need a USB-serial adapter.
-`make CONSOLE=usb_cdc PICO_SDK_PATH=...` puts the console on the Pico's own USB
-port instead; that is the only part of the tree needing the Pico SDK, and it
-uses TinyUSB only, not the SDK's CMake build.
+**`CONSOLE=usb_cdc` is mandatory on this car**, not an option: the UART0 pins
+GP0/GP1 are the left encoder (§1.5). The console then appears as a USB serial
+device on the same cable you flash over, at any baud rate. This is the only
+part of the tree needing the Pico SDK, and it uses TinyUSB only, not the SDK's
+CMake build. If the VS Code Pico extension is installed, the SDK is already at
+`%USERPROFILE%\.pico-sdk\sdk\<version>`.
 
 Toolchain: `arm-none-eabi-gcc` (baseline 13.2.1) and a host `g++`.
 
@@ -469,9 +517,9 @@ its own:
 | Step | Test | Pass condition |
 |---|---|---|
 | 1 | Blink GP19 | LED blinks at 1 Hz |
-| 2 | `tm_printf` over UART | Text appears at 115200 |
+| 2 | `tm_printf` over USB | Text appears on the Pico's USB serial port |
 | 3 | Motors, open loop | Both wheels spin the right way at a fixed duty |
-| 4 | Encoders | Counts rise smoothly; no bursts (that is bounce — raise `DEBOUNCE_US`) |
+| 4 | Encoders | Counts rise smoothly, no bursts (that is bounce — raise `DEBOUNCE_US`); speed is positive on both sides when driven forward (else swap A/B) |
 | 5 | Closed-loop speed | Commanded mm/s matches measured within 10 % |
 | 6 | IR sensors | DOUT flips crossing the line; AOUT differs clearly black vs white |
 | 7 | Line following | Car tracks a straight line, then a curve |
@@ -497,14 +545,13 @@ the car drives.
 | Raspberry Pi Pico W | 1 | GP23/24/25/29 reserved by the radio |
 | Cytron Robo Pico | 1 | Motor driver, servo ports, Grove breakouts |
 | DC gear motors + wheels | 2 | |
-| Slotted optical encoders | 2 | Single channel |
-| IR reflective module (ST188 or TCRT5000) | 3 | 2 line + 1 barcode |
+| Wheel encoders, two-channel A/B | 2 | Left on Grove 1, right on Grove 7 |
+| MH-Sensor-Series IR module (TCRT5000 + LM393) | 3 | 2 line + 1 barcode |
 | HC-SR04 | 1 | Needs a 5 V supply and a divider on ECHO |
 | SG90-class servo + pan bracket | 1 | |
 | GY-511 / LSM303DLHC | 1 | Accel + mag, **no gyro** |
 | 1 kΩ and 2 kΩ resistors | 1 each | ECHO divider |
 | LED + 330 Ω resistor | 1 | Liveness on GP19 |
 | Single-cell LiPo | 1 | 3.6–6 V input range |
-| USB-serial adapter | 1 | For the UART console |
 | Bulk capacitor, 470 µF+ | 1 | Servo supply, if you see brownouts |
-| Grove cables | 4+ | Ports 2, 3, 4 and jumpers for 5/6/7 |
+| Grove cables | 7 | One per Grove socket 1–7; Grove 5 with the AO wire left off |

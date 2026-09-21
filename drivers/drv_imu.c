@@ -60,7 +60,7 @@
  * multi-byte read would return garbage after the first two bytes. */
 #define AUTO_INC        (0x80U)
 
-#define I2C_DEVNAME     ((UB *)"iicb")   /* unit 1 - the RTOS's name for the I2C bus device */
+#define I2C_DEVNAME     ((UB *)"iica")   /* unit 0 (GP4/GP5 after the HARDWARE.md patch) - the RTOS's name for the I2C bus device */
 
 /* `static` here means these variables are private to this file - no
  * other .c file can see or touch them directly, only through the

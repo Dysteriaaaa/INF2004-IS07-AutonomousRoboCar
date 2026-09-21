@@ -36,7 +36,7 @@ rc_result_t drv_imu_init(void);
 
 /*
  *  Read one accelerometer sample. Blocks on the I2C driver's own wait,
- *  which is bounded by DEVCNF_I2C1_TMO, so it must be called from a task
+ *  which is bounded by DEVCNF_I2C0_TMO, so it must be called from a task
  *  and never from an interrupt handler. The sense task owns this.
  *
  *  `x`, `y`, `z` are "pointers" - instead of returning one number, this

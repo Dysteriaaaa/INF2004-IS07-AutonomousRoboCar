@@ -1,13 +1,18 @@
 /*
  *  drv_encoder.h  -  Buddy 2 hardware layer
  *
- *  Single-channel slotted encoders, one per wheel. There is no quadrature
- *  here (a second sensor offset in phase, which is what would let you
- *  tell direction directly from the disc), so direction is NOT
- *  measurable from the disc itself. The driver takes direction from
- *  whatever drv_motor was last commanded to do, which is correct except
- *  during the fraction of a second the wheel is still coasting after a
- *  reversal. Keep that in mind when tuning.
+ *  Two-channel (A/B, "quadrature") encoders, one per wheel. The two
+ *  channels are the same signal offset by a quarter of a slot, so at the
+ *  instant A rises, B is low when the wheel turns one way and high when
+ *  it turns the other. Channel A raises the edge interrupt and is
+ *  counted; channel B is read inside that interrupt to get direction. So
+ *  direction IS measured from the wheel itself - including during the
+ *  moment it is still coasting after a reversal - not guessed from the
+ *  last motor command.
+ *
+ *  Which sense of B is "forward" depends on how the encoder is mounted.
+ *  If a wheel reads negative when the car is driven forward, swap that
+ *  encoder's A and B wires rather than adding a sign in software.
  *
  *  Timing comes from the free-running microsecond counter inside the
  *  edge ISR (Interrupt Service Routine - code the chip jumps to the
@@ -39,11 +44,15 @@ uint32_t drv_encoder_count(rc_side_t side);
  * reads as "0", not as "infinitely slow"). */
 uint32_t drv_encoder_period_us(rc_side_t side);
 
-/* Signed speed in mm/s, derived from the period and the commanded
- * direction (borrowed from drv_motor_get(), see drv_motor.h). Integer
- * maths throughout, there is no FPU (floating-point hardware unit) on
- * this chip, so no fractional numbers are used anywhere in this path. */
+/* Signed speed in mm/s, derived from the period and the direction read
+ * from channel B. Integer maths throughout, there is no FPU
+ * (floating-point hardware unit) on this chip, so no fractional numbers
+ * are used anywhere in this path. */
 int32_t drv_encoder_speed_mm_s(rc_side_t side);
+
+/* Direction of the most recent edge on one wheel: +1 forward, -1
+ * reverse, 0 for an invalid side. Sampled from channel B in the ISR. */
+int8_t drv_encoder_dir(rc_side_t side);
 
 /* Distance in mm since the last drv_encoder_reset() call - this is the
  * actual odometry distance count used by sub_motion.c to know when a

@@ -24,9 +24,7 @@
  * pin_a / pin_b: the two PWM-capable GPIO pins that drive this motor
  *   (see drv_motor.h - forward drives pin_a, reverse drives pin_b).
  * last: the most recently commanded signed duty (-1000..1000), kept so
- *   drv_motor_get() can report it and so drv_encoder.c can infer which
- *   way the wheel is being told to spin (the encoder disc itself can't
- *   tell direction - see drv_encoder.h).
+ *   drv_motor_get() can report it to telemetry.
  */
 typedef struct {
     uint32_t pin_a;

@@ -167,9 +167,10 @@ voltage divider — covered in §0.6 — everything below is safe to retry).
   plugging in the USB cable tells the chip "don't run your program, just
   wait for me to copy a new one onto you." This makes the Pico appear to
   your laptop as if it were a USB flash drive.
-- **Baud rate (115200)** — the speed the serial console talks at. Both
-  sides (the Pico and your terminal program) must be set to the same
-  number or you'll see garbled text instead of readable output.
+- **Serial console over USB** — the Pico has no screen, so it "talks" by
+  streaming text over its own USB cable, which your laptop sees as a
+  serial port (a "COM port" on Windows). Any serial-terminal program can
+  open it. Because it's USB, the baud rate you pick doesn't matter.
 
 #### 0.5.1 Install the tools (once per laptop)
 
@@ -199,10 +200,15 @@ or ask a teammate who's already done it rather than guessing blindly.
    arm-none-eabi-gcc bundle or MinGW; on Mac it's part of Xcode Command
    Line Tools (`xcode-select --install`); on Linux, `sudo apt install
    g++`.
-4. **A USB-serial adapter + driver**, and **a serial terminal program**
-   to read the Pico's console output (details in §0.5.5). You don't need
-   this to build — only to actually see what the car is doing once
-   flashed.
+4. **The Raspberry Pi Pico SDK** — only a small slice of it is used (the
+   TinyUSB library that puts the console on the Pico's USB port), but that
+   slice is mandatory on this car, because the UART pins are taken by the
+   left encoder. If you have the VS Code Pico extension installed you
+   already have the SDK at `%USERPROFILE%\.pico-sdk\sdk\<version>`;
+   otherwise clone `raspberrypi/pico-sdk` anywhere and note the path.
+5. **A serial terminal program** to read the console (details in §0.5.6).
+   No USB-serial adapter is needed — the console comes out of the same USB
+   cable you flash over.
 
 #### 0.5.2 Get the two repositories onto your laptop
 
@@ -239,16 +245,16 @@ Pico). Skipping them doesn't crash the build — it silently produces a
 robot that can't talk to its IMU, or has no status LED. Full detail and
 exact code is in `docs/HARDWARE.md` §1.2 and §1.3; the short version:
 
-1. **I²C pin patch.** The port's stock I²C driver
-   (`device/i2c/sysdepend/rp2040/i2c_rp2040.c`) wires I²C channel 1 to
-   pins GP6/GP7 by default. On this car those pins are already used by
-   the line sensors (Buddy 3's hardware), so the IMU (Buddy 4's hardware)
-   can't share them. Open that file and change the unit-1 pin setup to
-   GP2/GP3 instead — `docs/HARDWARE.md` §1.2 has the exact lines to
-   change.
+1. **I²C pin patch.** The IMU (Buddy 4's hardware) sits on Grove 3, which
+   is GP4/GP5. In the RP2040 chip those two pins can only ever be I²C
+   *unit 0*'s SDA and SCL — it's fixed in silicon. But the port's stock
+   I²C driver (`device/i2c/sysdepend/rp2040/i2c_rp2040.c`) wires unit 0
+   to GP8/GP9 by default, which on the Robo Pico are the left motor. Open
+   that file and change the **unit-0** pin setup from GP8/GP9 to GP4/GP5
+   — `docs/HARDWARE.md` §1.2 has the exact lines to change.
 2. **Status LED pin patch.** The port defaults its "liveness LED" pin
-   (`BOARD_LED_PIN`) to GP16, but this project needs GP16 for the
-   ultrasonic sensor's trigger pin (Buddy 5's hardware). Open
+   (`BOARD_LED_PIN`) to GP16, but this project needs GP16 for line sensor
+   1 (Buddy 3's hardware). Open
    `include/sys/sysdepend/pico_rp2040/sysdef.h` and change
    `BOARD_LED_PIN` to GP19 instead, then wire an external LED (+ resistor)
    to GP19 — the on-board Pico W LED can't be used here because it's
@@ -266,24 +272,32 @@ From inside the port repo (`mtk3smp-rp2040`), in your terminal:
 
 ```sh
 cd build_make
-make -j8
+make CONSOLE=usb_cdc PICO_SDK_PATH=/c/Users/<you>/.pico-sdk/sdk/<version> -j8
 ```
 
 What this does, in plain terms: `make` reads the build recipe, and for
 every `.c` file in this project it runs the ARM compiler to turn it into
 machine code, then links all those pieces together into one program. The
 `-j8` just means "use up to 8 CPU cores at once to go faster" — safe to
-lower to `-j4` or drop entirely (just `make`) on a weaker laptop, it'll
-just take longer.
+lower to `-j4` or drop entirely on a weaker laptop, it'll just take
+longer.
+
+**`CONSOLE=usb_cdc` is not optional on this car.** GP0 and GP1 — the pins
+the port would normally use for a wired serial console — are the left
+wheel encoder here. A build without that flag drives GP0 as a serial
+transmit pin and the left encoder never counts. `PICO_SDK_PATH` tells the
+build where to find the Pico SDK from §0.5.1 (use forward slashes, even on
+Windows, when typing it in Git Bash). Put both settings in a tiny script
+or a shell alias so you never forget them.
 
 **What success looks like:** the command finishes with **no errors and
-zero warnings**, and you'll find a new file named something like
-`mtk3pico_smp0_uart.uf2` inside `build_make/`. `SMP=0` means "single-core"
-— the simplest configuration, and the one to always get working first.
-Once that's solid, you can also try dual-core with:
+zero warnings**, and you'll find a new `.uf2` file inside `build_make/`.
+`SMP=0` means "single-core" — the simplest configuration, and the one to
+always get working first. Once that's solid, you can also try dual-core
+with:
 
 ```sh
-make SMP=1 -j8
+make CONSOLE=usb_cdc PICO_SDK_PATH=<same path> SMP=1 -j8
 ```
 
 **If the build fails:** read the *first* error message, not the last —
@@ -303,9 +317,9 @@ error text — don't just retry the same command hoping it changes.
    drive named `RPI-RP2`, the same way a USB flash drive would appear.
    If nothing appears, unplug and repeat from step 1 — timing the button
    press right sometimes takes a couple of tries.
-5. **Copy the `.uf2` file onto that drive** — drag-and-drop
-   `build_make/mtk3pico_smp0_uart.uf2` onto `RPI-RP2` in your file
-   explorer, the same as copying a file onto a USB stick.
+5. **Copy the `.uf2` file onto that drive** — drag-and-drop the `.uf2`
+   from `build_make/` onto `RPI-RP2` in your file explorer, the same as
+   copying a file onto a USB stick.
 6. The Pico will automatically reset and start running your program the
    moment the copy finishes — the `RPI-RP2` drive will disappear. That's
    normal, not an error.
@@ -318,40 +332,35 @@ was there.
 
 The Pico has no screen, so the only window into what your program is
 doing (print statements, error messages, sensor readings) is a **serial
-console** — a stream of text sent over the USB-serial adapter's wire.
+console** — a stream of text. On this car it comes out of the **same USB
+cable you flash over**: the `CONSOLE=usb_cdc` build makes the Pico show
+up to your laptop as a serial port the moment it boots. No extra adapter,
+no extra wires.
 
-1. Wire the USB-serial adapter's RX/TX/GND pins to the Pico's UART0 pins:
-   GP0 (TX) and GP1 (RX) — **cross them**: the adapter's RX goes to the
-   Pico's TX (GP0) and the adapter's TX goes to the Pico's RX (GP1). Also
-   connect GND to GND. (Getting RX/TX backwards is the single most common
-   reason "nothing shows up" — if you see nothing, try swapping those two
-   wires first.)
-2. Plug the USB-serial adapter into your laptop. It should appear as a
-   new "COM port" (Windows, e.g. `COM5`) or device file (Mac/Linux, e.g.
-   `/dev/tty.usbserial-XXXX`).
-3. Open a serial terminal program pointed at that port, set to **115200
-   baud, 8 data bits, no parity, 1 stop bit** (often written "115200
-   8N1" — this is the default assumed almost everywhere, so most tools
-   just need the baud rate set). Common free options:
-   - Windows: **PuTTY** (select connection type "Serial"), or the
-     built-in serial monitor in VS Code's PlatformIO/Arduino extensions
-     if you already have one installed.
-   - Mac/Linux: `screen /dev/tty.usbserial-XXXX 115200` from a terminal,
-     or a GUI tool like CoolTerm.
-4. Reset the Pico (unplug/replug its power, or press its reset button if
-   it has one) and you should see boot text appear, e.g. lines like
-   `[init] event bus ok`, matching what `app/app_main.c`'s `step()`
-   helper prints for each subsystem as it starts up. If every `step()`
-   line says `ok` and you reach `[init] ready, starting run`, the whole
-   framework initialized successfully — you're ready to start the
-   hardware bring-up checklist below.
+1. With the Pico plugged in and running your program (not in BOOTSEL
+   mode), look for a new "COM port" (Windows, e.g. `COM5`) or device file
+   (Mac/Linux, e.g. `/dev/tty.usbmodemXXXX`). It appears a second or two
+   after the `RPI-RP2` drive disappears.
+2. Open a serial terminal program on that port. Because it's USB, the
+   baud rate genuinely doesn't matter — pick anything. Common free
+   options:
+   - Windows: **PuTTY** (connection type "Serial"), or the Serial Monitor
+     panel inside VS Code's Raspberry Pi Pico extension.
+   - Mac/Linux: `screen /dev/tty.usbmodemXXXX` from a terminal, or a GUI
+     tool like CoolTerm.
+3. Reset the Pico (unplug/replug, or the RST button on the Robo Pico) and
+   you should see boot text appear, e.g. lines like `[init] event bus
+   ok`, matching what `app/app_main.c`'s `step()` helper prints for each
+   subsystem as it starts up. If every `step()` line says `ok` and you
+   reach `[init] ready, starting run`, the whole framework initialized
+   successfully — you're ready to start the hardware bring-up checklist
+   below.
 
-**Note:** the USB cable that powers the Pico during flashing and the
-USB-serial adapter for the console are two separate connections — you'll
-typically have both plugged in at once during development (one for power
-and reflashing, one to read output), unless you build with
-`CONSOLE=usb_cdc` (see `docs/HARDWARE.md` §5) to put the console on the
-same USB port as flashing.
+**If nothing appears:** the port only exists while the program is
+running, so it vanishes during BOOTSEL/flashing and comes back after —
+close and reopen your terminal program after each reflash. And if the
+port never appears at all, the build was made without `CONSOLE=usb_cdc`;
+rebuild with it (§0.5.4).
 
 #### 0.5.7 Now bring the hardware up, one piece at a time
 
@@ -363,7 +372,7 @@ same USB port as flashing.
   One row per physical pin, reading outward: what we connect, which Robo
   Pico port it lands on, the pin's function (UART / I²C / PWM / ADC /
   plain GPIO), the GPIO number, and the header pin number. Use this when
-  you are reading code and want to know what `GP17` actually is.
+  you are reading code and want to know what `GP3` actually is.
 - [`robopico_board_view.png`](img/hw/robopico_board_view.png) — the same
   information drawn onto a picture of the actual board. Use this when you
   are holding the board and want to know which socket a device plugs
@@ -447,36 +456,23 @@ maps onto this project:
   install, you can flash from the terminal instead once the Pico is in
   BOOTSEL mode:
   ```sh
-  picotool load -f build_make/mtk3pico_smp0_uart.uf2
+  picotool load -f build_make/<the .uf2>
   picotool reboot
   ```
   Either way gets you the same result — there just isn't a single button
   for it here.
-- **Instead of the extension's built-in Serial Monitor panel** — that
-  panel watches the Pico's *own* USB port, which by default carries
-  nothing on this project, because the console defaults to a separate
-  UART on GP0/GP1 (see §0.5.6) rather than USB. You have two options:
-  1. Wire a USB-serial adapter to GP0/GP1 as described in §0.5.6, and
-     point any serial tool (including the extension's Serial Monitor
-     panel — it isn't picky about *which* COM port you select) at that
-     adapter's COM port instead of the Pico's own one, at 115200 baud.
-  2. **Or**, since you already have the Pico SDK installed locally (the
-     extension put it under `%USERPROFILE%\.pico-sdk\sdk\<version>\`),
-     rebuild with the console routed over the Pico's own USB port
-     instead of a separate UART:
-     ```sh
-     make CONSOLE=usb_cdc PICO_SDK_PATH=C:/Users/<you>/.pico-sdk/sdk/<version> -j8
-     ```
-     Flash the resulting `.uf2` the same way as above. Now the Pico
-     shows up as a normal USB-serial device the moment it boots, and the
-     extension's own Serial Monitor panel (or any serial tool) will work
-     against that port with no extra adapter needed — this is the closest
-     this project gets to the one-cable, no-extra-hardware experience the
-     extension normally gives you. The only catch: per `docs/HARDWARE.md`
-     §4.1 this is the one part of the RTOS port explicitly flagged as
-     **less battle-tested** than the UART path, so if console output ever
-     looks flaky, fall back to a real UART adapter (option 1) to rule
-     that out before assuming your own code is at fault.
+- **The extension's built-in Serial Monitor panel works as-is.** The
+  console on this car is already routed over the Pico's own USB port
+  (that's what the mandatory `CONSOLE=usb_cdc` flag does), which is
+  exactly the port the Serial Monitor panel watches. The `PICO_SDK_PATH`
+  the build needs is the SDK the extension already installed for you:
+  ```sh
+  make CONSOLE=usb_cdc PICO_SDK_PATH=/c/Users/<you>/.pico-sdk/sdk/<version> -j8
+  ```
+  One caveat from `docs/HARDWARE.md` §4.1: the USB console is the part of
+  the RTOS port flagged as less battle-tested. If output ever looks
+  garbled, suspect that before suspecting your own code — but there is no
+  UART fallback on this car, because GP0/GP1 are the left encoder.
 
 Everything after this point — bring-up order, per-buddy work — is
 identical no matter which path you used to get the `.uf2` flashed.
@@ -514,7 +510,7 @@ this pin to 40% power" instead of poking at hardware registers.
 | `rc_types.h` | The shared dictionary: result codes, command names, event IDs, the event "parcel" | every file (pulled in by the other headers) | everyone |
 | `rc_config.h` | The one settings sheet: every pin number and tuning constant | every driver, subsystem and `app_main.c` | everyone |
 | `rc_time.*` | Microsecond stopwatch read straight from the chip | `drv_encoder`, `drv_ir`, `drv_ultrasonic`, `sub_terrain`, `sub_telemetry` | 2, 3, 4, 5, 1 |
-| `rc_gpioirq.*` | The doorbell switchboard: routes the chip's single GPIO interrupt to the right driver | `drv_encoder` (GP4/GP5), `drv_ir` (GP27), `drv_ultrasonic` (GP17) | 2, 3, 5 |
+| `rc_gpioirq.*` | The doorbell switchboard: routes the chip's single GPIO interrupt to the right driver | `drv_encoder` (GP0/GP7), `drv_ir` (GP27), `drv_ultrasonic` (GP3) | 2, 3, 5 |
 | `rc_defer.*` | The "do it in a moment" list: lets an interrupt hand real work to a task | `drv_encoder`, `drv_ir`, `drv_ultrasonic` | 2, 3, 5 |
 | `rc_event.*` | The notice board (publish / subscribe) that connects all subsystems | every driver and subsystem | everyone |
 | `rc_pwm.*` | The dimmer switch: turns "40 % power" or "1500 µs pulse" into a PWM signal | `drv_motor` (20 kHz), `drv_servo` (50 Hz) | 2, 5 |
@@ -621,8 +617,8 @@ time → distance), `sub_terrain` (hump duration), `sub_telemetry`
 
 **What it is.** The RP2040 has 30 GPIO pins but only *one* interrupt line
 for all of them together. Four of our pins need to trigger code the
-instant they change (left encoder GP4, right encoder GP5, ultrasonic echo
-GP17, barcode sensor GP27). Picture an apartment block with one shared
+instant they change (left encoder A on GP0, right encoder A on GP7,
+ultrasonic echo GP3, barcode sensor GP27). Picture an apartment block with one shared
 doorbell: when it rings, someone has to look at the panel to see which
 flat was pressed and go tell *that* tenant. `rc_gpioirq` is that
 concierge. It claims the one interrupt from the RTOS, and when it fires it
@@ -646,8 +642,9 @@ applies: timestamp, update a counter, ring the defer bell, return. Nothing
 else. On the dual-core build the interrupt is owned by core 0 only, as the
 port requires.
 
-**Who uses it.** `drv_encoder` (rising edges on GP4/GP5), `drv_ir`
-(both edges on GP27), `drv_ultrasonic` (both edges on GP17).
+**Who uses it.** `drv_encoder` (rising edges on GP0/GP7, reading GP1/GP28
+for direction inside the handler), `drv_ir` (both edges on GP27),
+`drv_ultrasonic` (both edges on GP3).
 
 #### `rc_defer.c` / `rc_defer.h` — the "do it in a moment" list
 
@@ -741,7 +738,7 @@ and wraps everything in four calls:
 One catch worth knowing: the RP2040's PWM hardware is organised in
 **slices** of two pins each, and both pins in a slice must share the same
 frequency. The pin map in `rc_config.h` was chosen so that the two pins of
-each motor (GP8/GP9, GP10/GP11) and the two servo ports (GP12/GP13) each
+each motor (GP8/GP9, GP10/GP11) and the scan servo (GP15, slice 7) each
 land on their own slice. Don't move a motor pin onto the servo's slice.
 
 **Who uses it.** `drv_motor` (both motors at 20 kHz — above hearing, so
@@ -811,13 +808,13 @@ without any other edit.
 | Raspberry Pi Pico W | 1 | **shared** | Robo Pico's Pico socket | [Pico W pinout](#shared-parts) |
 | Cytron Robo Pico carrier board | 1 | **shared** | — (everything plugs into it) | [Robo Pico](#shared-parts) |
 | Single-cell LiPo battery | 1 | **shared** | Robo Pico LiPo socket | [LiPo](#shared-parts) |
-| Chassis, wheels, castor, USB-serial adapter, Grove cables, status LED | — | **shared** | see `docs/HARDWARE.md` §8 | — |
+| Chassis, wheels, castor, Grove cables, status LED | — | **shared** | see `docs/HARDWARE.md` §8 | — |
 | DC gear motor + wheel | 2 | **Buddy 2** | Robo Pico M1 / M2 screw terminals (GP8–GP11) | [motor](#buddy-2-hardware) |
-| Slotted optical encoder module + disc | 2 | **Buddy 2** | Grove 3 → GP4 (left), GP5 (right) | [encoder](#buddy-2-hardware) |
-| IR reflective module (ST188 board or TCRT5000 board) | 3 | **Buddy 3** | GP6, GP7 (line); GP27 + GP26/ADC0 (barcode) | [IR module](#buddy-3-hardware) |
-| GY-511 breakout (LSM303DLHC accel + magnetometer) | 1 | **Buddy 4** | Grove 2 → I2C1 on GP2 (SDA) / GP3 (SCL) | [GY-511](#buddy-4-hardware) |
-| HC-SR04 ultrasonic ranger | 1 | **Buddy 5** | Grove 4 → GP16 (TRIG), GP17 (ECHO via divider) | [HC-SR04](#buddy-5-hardware) |
-| SG90-class servo + pan bracket | 1 | **Buddy 5** | Robo Pico servo port 1 (GP12) | [servo](#buddy-5-hardware) |
+| Wheel encoder, two-channel A/B | 2 | **Buddy 2** | Grove 1 → GP0/GP1 (left), Grove 7 → GP7/GP28 (right) | [encoder](#buddy-2-hardware) |
+| MH-Sensor-Series IR module (TCRT5000 + LM393) | 3 | **Buddy 3** | Grove 4 → GP16, Grove 5 → GP6 (line); Grove 6 → GP27 + GP26/ADC0 (barcode) | [IR module](#buddy-3-hardware) |
+| GY-511 breakout (LSM303DLHC accel + magnetometer) | 1 | **Buddy 4** | Grove 3 → I2C0 on GP4 (SDA) / GP5 (SCL) | [GY-511](#buddy-4-hardware) |
+| HC-SR04 ultrasonic ranger | 1 | **Buddy 5** | Grove 2 → GP2 (TRIG), GP3 (ECHO via divider) | [HC-SR04](#buddy-5-hardware) |
+| SG90-class servo + pan bracket | 1 | **Buddy 5** | Robo Pico servo port 4 (GP15) | [servo](#buddy-5-hardware) |
 | 1 kΩ + 2 kΩ resistors (ECHO divider) | 1 each | **Buddy 5** | inline on the ECHO wire | — |
 | WiFi radio (CYW43439, on the Pico W itself) | — | **Buddy 1** | nothing to wire | [Pico W pinout](#shared-parts) |
 
@@ -837,7 +834,7 @@ Two rules that follow from the table:
 chip in the middle and a metal-canned WiFi module (the CYW43439) near the
 USB end. It sits in the Robo Pico's socket, USB connector facing outwards.
 Everything in this repo runs on it. The pinout below is the one you'll
-keep coming back to: our pin numbers (GP4, GP16, …) are the green
+keep coming back to: our pin numbers (GP2, GP16, …) are the green
 `GPn` labels, *not* the physical pin numbers 1–40.
 
 <img src="docs/img/hw/pico_w_pinout.jpg" width="720" alt="Pico W pinout">
@@ -863,9 +860,10 @@ wants 5 V and will lose range on a sagging battery — see
 
 <img src="docs/img/hw/lipo_battery.png" width="360" alt="LiPo battery">
 
-**Also shared, no picture needed:** the chassis and castor wheel; a
-USB-to-serial adapter (for the console on GP0/GP1); Grove cables; the
-external liveness LED on GP19 with its 330 Ω resistor.
+**Also shared, no picture needed:** the chassis and castor wheel; seven
+Grove cables (one per socket); the external liveness LED on GP19 with its
+330 Ω resistor. There is no USB-serial adapter — the console rides the
+Pico's own USB cable (§0.5.6).
 
 <a id="buddy-2-hardware"></a>
 #### Buddy 2 — Motion: motors and encoders
@@ -879,15 +877,18 @@ duty.
 
 <img src="docs/img/hw/motor_wheel.png" width="460" alt="TT gear motor with wheel and encoder disc">
 
-**Slotted optical encoder module (×2).** A small blue board with a black
-U-shaped fork on top. A slotted black disc on the motor's rear axle spins
-through the fork; every slot lets an IR beam through and the board's LM393
-comparator turns that into one clean pulse on its `D0` pin. Twenty slots
-per revolution → twenty pulses per wheel turn → speed and distance in
-`drv_encoder.c`. The disc can't tell which way it's turning, which is why
-`drv_encoder` asks `drv_motor` for the commanded direction.
+**Wheel encoder, two-channel (×2).** Sits on the motor's rear axle and
+gives two pulse outputs, `A` and `B`, that are the same train of pulses
+shifted by a quarter of a step. Every step of the wheel gives one pulse
+on `A` → speed and distance in `drv_encoder.c`. And because `B` is
+shifted, whether `B` is low or high at the instant `A` rises tells you
+which way the wheel is turning — so direction is *measured*, not guessed.
+Four wires: `GND`, `VCC`, `A`, `B`, which is exactly one Grove cable —
+left encoder into **Grove 1** (`A` → GP0, `B` → GP1), right encoder into
+**Grove 7** (`A` → GP7, `B` → GP28). If a wheel reads backwards, swap
+that encoder's `A` and `B` wires.
 
-<img src="docs/img/hw/encoder_module.png" width="460" alt="slotted optical encoder module">
+<img src="docs/img/hw/encoder_module.png" width="460" alt="wheel encoder module">
 
 <a id="buddy-3-hardware"></a>
 #### Buddy 3 — Line following and barcode: IR reflective modules
@@ -897,11 +898,15 @@ end that points *down* at the floor: it shines infrared light and
 measures how much bounces back — a lot from white, very little from
 black. An on-board LM393 comparator with a trim pot turns that into a
 clean `DOUT` high/low ("black / not black"); `AOUT` gives the raw
-analogue level. Two of these are the line sensors (`DOUT` → GP6 and
-GP7); the third is the barcode reader, wired on *both* outputs (`DOUT` →
-GP27 for edge timing, `AOUT` → GP26 for the analogue path). Your kit may
-have the Waveshare ST188 board or a TCRT5000 board — both work the same
-way; the TCRT5000 element itself is the small black block with two domes
+analogue level. Two of these are the line sensors, wired on `DO` only
+(sensor 1 → GP16 on Grove 4, sensor 2 → GP6 on Grove 5); the third is the
+barcode reader on Grove 6, wired on *both* outputs (`DO` → GP27 for edge
+timing, `AO` → GP26 for the analogue path). **On Grove 5 leave line sensor
+2's `AO` pin unconnected** — that socket's second signal pin is also GP26,
+and two analogue outputs tied together read as nonsense. Your kit has the
+MH-Sensor-Series board (a TCRT5000 element + LM393 comparator; the
+Waveshare ST188 board is pin-compatible); the TCRT5000 element itself is
+the small black block with two domes
 shown on the right.
 
 <img src="docs/img/hw/ir_module.png" width="460" alt="IR reflective module">  <img src="docs/img/hw/tcrt5000_element.png" width="180" alt="TCRT5000 element">
@@ -911,8 +916,9 @@ shown on the right.
 
 **GY-511 (LSM303DLHC) breakout (×1).** A small blue board, about the size
 of a fingernail, with an 8-pin header labelled `VIN 3.3V GND SCL SDA
-INT2 INT1 DRDY`. Only four wires are used: 3.3 V, GND, SCL → GP3, SDA →
-GP2 (Robo Pico Grove 2). It contains an accelerometer (tilt — how far the
+INT2 INT1 DRDY`. Only four wires are used: 3.3 V → `VIN`, GND, SDA → GP4,
+SCL → GP5 (Robo Pico Grove 3 — note SDA is the *lower* pin number, that
+is fixed by the chip). It contains an accelerometer (tilt — how far the
 nose is up or down, which is how humps are detected) and a magnetometer
 (compass). **It has no gyroscope**, despite what many online tutorials
 for "GY-511" assume — see `docs/HARDWARE.md` §1.1. Mount it flat and
@@ -925,8 +931,8 @@ firmly; a wobbling IMU reports a wobbling road.
 
 **HC-SR04 ultrasonic ranger (×1).** The blue board with two silver
 "eyes": one speaker (T) that shouts an inaudible click, one microphone
-(R) that listens for the echo. Four pins: `VCC` (5 V), `Trig` → GP16,
-`Echo` → GP17, `GND`. **`Echo` outputs 5 V and the Pico's pins are 3.3 V
+(R) that listens for the echo. Four pins on Grove 2: `VCC` → 3V3, `Trig` →
+GP2, `Echo` → GP3, `GND`. **`Echo` outputs 5 V and the Pico's pins are 3.3 V
 only** — the 1 kΩ / 2 kΩ resistor divider on that wire is not optional.
 Range 2 cm – 4 m; the flight time of the echo is what `drv_ultrasonic.c`
 measures with the microsecond stopwatch.
@@ -935,8 +941,9 @@ measures with the microsecond stopwatch.
 
 **SG90-class servo + pan bracket (×1).** The small blue plastic servo with
 a white horn and a three-wire lead (brown/black = GND, red = V+ i.e. battery voltage,
-orange/yellow = signal). It plugs straight into Robo Pico servo port 1
-(GP12) — the port has the 3-pin header in the right order. The HC-SR04
+orange/yellow = signal). It plugs straight into Robo Pico servo port 4
+(GP15, the right-most of the four) — the port has the 3-pin header in the
+right order. The HC-SR04
 bolts to a bracket on the horn so the scan task can point it from 30° to
 150°. Centre it at 90° *before* attaching the bracket.
 
@@ -946,7 +953,8 @@ bolts to a bracket on the horn so the scan task can point it from 30° to
 
 The WiFi radio is the CYW43439 module already on the Pico W (the metal
 can at the USB end in the pinout picture above). Your hardware work is
-limited to keeping the USB-serial adapter on GP0/GP1 for the console and,
+limited to making sure every build carries `CONSOLE=usb_cdc` so the
+console rides the USB cable (GP0/GP1 belong to the left encoder) and,
 later, confirming the radio comes up through the port's `libwifi`. If a
 laptop hotspot or router is needed for the demo, that's yours to bring.
 
@@ -969,8 +977,8 @@ Now jump to your section.
 ### Buddy 1 — WiFi, Command & Telemetry
 
 **Your hardware** — nothing to wire: the CYW43439 WiFi radio is on the
-Pico W itself, and until the network sink exists your "device" is the USB
-serial console on GP0/GP1. See §0.7.
+Pico W itself, and until the network sink exists your "device" is the
+console on the Pico's own USB port. See §0.7.
 
 <img src="docs/img/hw/pico_w_pinout.jpg" width="420" alt="Pico W pinout">
 
@@ -1724,8 +1732,9 @@ arg, cmd_ctx)` to hand it off to whatever registered here (most likely
 `drivers/drv_encoder.c` / `.h`
 
 **Your hardware** — 2 × DC gear motor with wheel (Robo Pico M1 / M2
-terminals), 2 × slotted optical encoder module with disc (GP4 left, GP5
-right). The Robo Pico's motor driver is shared but you're its main user.
+terminals), 2 × two-channel A/B wheel encoder (left on Grove 1 → GP0/GP1,
+right on Grove 7 → GP7/GP28). The Robo Pico's motor driver is shared but
+you're its main user.
 Details and wiring in §0.7 and `docs/HARDWARE.md` §4.2.
 
 <img src="docs/img/hw/motor_wheel.png" width="300" alt="TT gear motor"> <img src="docs/img/hw/encoder_module.png" width="300" alt="encoder module">
@@ -1741,11 +1750,10 @@ what happened.
 | Your file | Talks to | Through | In plain terms |
 |---|---|---|---|
 | `drv_motor.c` | `core/rc_pwm` | `rc_pwm_init_pin(pin, 20000)`, `rc_pwm_set_duty(pin, permille)` | "Set this wheel's dimmer to 40 %." Two pins per motor (GP8/9, GP10/11): drive A for forward, B for reverse, both high to brake. |
-| `drv_encoder.c` | `core/rc_gpioirq` | `rc_gpioirq_attach(GP4/GP5, RC_EDGE_RISE, …)` | "Ring `encoder_isr` every time a slot passes the sensor." |
+| `drv_encoder.c` | `core/rc_gpioirq` | `rc_gpioirq_attach(GP0/GP7, RC_EDGE_RISE, …)` | "Ring `encoder_isr` on every rising edge of channel A." Channel B (GP1/GP28) is a plain input the ISR reads for direction. |
 | `drv_encoder.c` | `core/rc_time` | `rc_time_us()` inside the ISR | Stamps each click so the gap between clicks gives speed. |
 | `drv_encoder.c` | `core/rc_defer` | `rc_defer_register(encoder_drain)`, `rc_defer_signal_i()` | The ISR only counts and rings the bell; `encoder_drain` does the arithmetic in task context. |
 | `drv_encoder.c` | `core/rc_event` | `rc_event_publish(RC_EVT_ENCODER_EDGE)` | Lets anyone (telemetry, debugging) watch raw clicks. |
-| `drv_encoder.c` | `drv_motor.c` | `drv_motor_get(side)` | The slot disc can't tell direction, so the encoder asks the motor which way it was *told* to spin. |
 | `sub_motion.c` | `drv_encoder.c` | `drv_encoder_speed_mm_s()`, `drv_encoder_distance_mm()` | Actual speed and distance for the PID and for "have I gone 300 mm yet?". |
 | `sub_motion.c` | `drv_motor.c` | `drv_motor_set_pair(left, right)`, `drv_motor_stop()` | The PID's output goes here every 20 ms. |
 | `sub_motion.c` | `core/rc_event` | `rc_event_publish(RC_EVT_ODOMETRY)`, `…(RC_EVT_MOTION_DONE)` | Every 20 ms: "here's my speed/distance". On finishing a move: "done" (also delivered as a direct callback to whoever asked). |
@@ -1761,9 +1769,10 @@ you own the wheels.
 
 This module is the car's legs and inner ear. It decides how much power to
 send to the left and right wheel motors, and it listens to two little
-slotted wheels (encoders) that click every time the wheel turns a fixed
-amount — the same idea as counting clicks on a bike's spoke card to know
-how fast and how far you've gone. That click-counting is called
+wheel encoders that click every time the wheel turns a fixed amount — the
+same idea as counting clicks on a bike's spoke card to know how fast and
+how far you've gone — and, because each encoder has a second, offset
+channel, can also tell which *way* the wheel is turning. That click-counting is called
 **odometry**: turning "number of clicks" into "distance travelled" and
 "current speed." Because motors never spin at exactly the speed you ask
 for (battery sag, friction, floor grip all get in the way), this module
@@ -1853,10 +1862,7 @@ press.
 `pin_a`/`pin_b` are which two GPIO pins drive this motor (numbers come
 from `rc_config.h`, the one file all pin numbers live in — see §2);
 `last` is the most recently commanded signed duty, kept purely so
-`drv_motor_get()` can report it later — this is what lets
-`drv_encoder.c` infer which way a wheel is *supposed* to be
-spinning, since the encoder hardware itself can't sense direction (more
-on that below).
+`drv_motor_get()` can report it later to telemetry.
 
 **Functions:**
 - `drv_motor_init(void)` — boot-time setup. Loops over both motors,
@@ -1886,24 +1892,25 @@ on that below).
   faster than coasting.
 - `drv_motor_get(rc_side_t side)` — returns whatever duty was last
   commanded (not a live measurement — just "what we last told it to do").
-  This one function is the load-bearing link between this file and
-  `drv_encoder.c`: because the wheel's spin sensor can't tell direction
-  on its own, `drv_encoder_speed_mm_s()` calls `drv_motor_get()` and uses
-  its sign to decide whether the measured speed should be reported as
-  positive or negative.
+  Only telemetry reads it. Wheel direction is *measured* by the encoder's
+  B channel (next section), so nothing needs to guess it from this.
 
 #### `drv_encoder.h` / `drv_encoder.c` — turning wheel clicks into speed and distance
 
-Each wheel has a slotted disc attached to its axle and a small optical
-sensor next to it (an ST188 or similar). Every time a slot in the disc
-passes between the sensor's emitter and detector, the sensor's output
-pin pulses. This is exactly the trick behind counting clicks on a
-bicycle's spoke card as the wheel spins — count clicks per second and you
-know speed; count total clicks and (knowing how far one click represents)
-you know distance travelled. That whole idea — clicks in, distance/speed
-out — is what this codebase calls **odometry**, and it's the numeric
-backbone this entire module (and Buddy 4's terrain code, and telemetry)
-relies on.
+Each wheel has an encoder on its axle with two outputs, `A` and `B`.
+Every step of the wheel pulses `A`. This is exactly the trick behind
+counting clicks on a bicycle's spoke card as the wheel spins — count
+clicks per second and you know speed; count total clicks and (knowing how
+far one click represents) you know distance travelled. That whole idea —
+clicks in, distance/speed out — is what this codebase calls **odometry**,
+and it's the numeric backbone this entire module (and Buddy 4's terrain
+code, and telemetry) relies on.
+
+`B` is the same pulse train shifted by a quarter of a step ("quadrature").
+That shift is what gives you direction: at the exact instant `A` rises,
+`B` is still low if the wheel turns one way and already high if it turns
+the other. One extra pin read inside the interrupt, and direction is a
+measurement instead of a guess.
 
 **Jargon you need first:**
 - **ISR (Interrupt Service Routine)** — a tiny function the processor
@@ -1957,8 +1964,10 @@ most recent accepted edges — this is what speed gets computed from;
 `drv_encoder_reset()`, so "distance since reset" is just
 `count - base_count`; `published` is the `count` value already turned
 into an event, so the bottom-half worker (below) doesn't re-publish
-unchanged data every cycle; `pin` is the GPIO this wheel's sensor is
-wired to. Every field except `pin` is `volatile`, because the ISR writes
+unchanged data every cycle; `dir` is +1 or −1, the direction read from
+channel B on the most recent edge; `pin_a` is the channel-A GPIO that
+raises the interrupt and `pin_b` the channel-B GPIO the ISR samples.
+Every field except the two pins is `volatile`, because the ISR writes
 them and normal code reads them (see jargon above).
 
 **`encoder_isr(pin, level, t_us, ctx)`** — the actual interrupt handler,
@@ -1970,8 +1979,10 @@ per-instance data (here, "which wheel is this edge for") without writing
 two nearly-identical handler functions. Inside, it does the absolute
 minimum: compute the gap since the last accepted edge (`delta`), bail out
 if that gap is smaller than `DEBOUNCE_US` (noise, ignore it), otherwise
-record the new timestamp, store the new period, increment `count`, and
-call `rc_defer_signal_i(defer_h)` to wake the bottom-half task. It does
+read channel B once with `gpio_get_val(e->pin_b)` to set `dir`, record
+the new timestamp, store the new period, increment `count`, and call
+`rc_defer_signal_i(defer_h)` to wake the bottom-half task. That single
+GPIO read is a register read, which the interrupt rule allows. It does
 **not** build or publish an event itself — see TEAM_GUIDE.md §0.2's rule
 that an ISR may only record state and hand off, never do real work,
 because the two encoder pins, the ultrasonic echo pin, and the barcode
@@ -1995,13 +2006,18 @@ physical click," and coalescing keeps a fast-spinning wheel from flooding
 the event bus.
 
 **`drv_encoder_init(void)`** — boot-time setup: registers `encoder_drain`
-as the deferred worker, zeroes every field of both `enc_t` structs, and
-attaches `encoder_isr` to each encoder pin for **rising edges only**. The
-comment in the code explains why not both edges: counting both edges
-would double the resolution, but a real slotted disc's "solid" and "gap"
-segments aren't the same width, so the timing between a rising and the
-next falling edge isn't the same as between two risings — mixing them
-would make the period measurement (and therefore speed) noisy and wrong.
+as the deferred worker, zeroes every field of both `enc_t` structs, sets
+each channel-B pin up as a plain pulled-up input (no interrupt — the ISR
+reads it), and attaches `encoder_isr` to each channel-A pin for **rising
+edges only**. The comment in the code explains why not both edges:
+counting both edges would double the resolution, but the encoder's
+"mark" and "space" aren't the same width, so the timing between a rising
+and the next falling edge isn't the same as between two risings — mixing
+them would make the period measurement (and therefore speed) noisy and
+wrong.
+
+**`drv_encoder_dir(side)`** — returns the `dir` the ISR last stored: +1
+forward, −1 reverse.
 
 **`drv_encoder_count(side)`** — raw lifetime click count for one wheel,
 no unit conversion, never resets.
@@ -2026,16 +2042,13 @@ by 1000 before dividing shifts the units from metres/second to
 millimetres/second while the whole calculation stays in whole-number
 (integer) arithmetic the entire way through — there's no FPU on this
 chip, so a division can never be left half-finished as a fraction; it has
-to land on a usable integer immediately. Since a single-channel encoder
-disc physically cannot tell *which way* the wheel is turning (there's no
-second, phase-offset sensor the way a proper quadrature encoder would
-have), the function borrows direction from `drv_motor_get(side)` in
-`drv_motor.c` instead — if the motor was last told to run in reverse, the
-speed is reported negative. This is correct almost all the time, but
-briefly wrong for the fraction of a second right after a direction
-reversal while the wheel is still physically coasting the old way — worth
-remembering when tuning PID gains, since a reversal can look like a
-sudden, real speed error to the controller.
+to land on a usable integer immediately. The sign comes from `dir`, the
+direction channel B reported on the most recent edge — so a wheel that
+is still coasting backwards after you command forward correctly reads
+negative until it actually turns around. Which sense of B counts as
+"forward" depends on how the encoder is mounted: if a wheel reads negative
+while the car drives forward, swap that encoder's A and B wires rather
+than negating in software.
 
 **`drv_encoder_distance_mm(side)`** — `(count - base_count)` converted to
 millimetres using the same `RC_ENC_UM_PER_TICK` constant. This is the
@@ -2292,10 +2305,11 @@ Then it branches on `mode`:
 **Files:** `subsystems/sub_line.c/.h`, `subsystems/sub_barcode.c/.h`,
 `drivers/drv_ir.c/.h`
 
-**Your hardware** — 3 × IR reflective module (ST188 or TCRT5000 board):
-two pointing down for the line (`DOUT` → GP6, GP7), one for the barcode
-(`DOUT` → GP27 and `AOUT` → GP26). Each has a trim pot you will need to
-set on the actual track. Details in §0.7 and `docs/HARDWARE.md` §4.3.
+**Your hardware** — 3 × MH-Sensor-Series IR module (TCRT5000 + LM393):
+two pointing down for the line (sensor 1 `DO` → GP16 on Grove 4, sensor 2
+`DO` → GP6 on Grove 5), one for the barcode on Grove 6 (`DO` → GP27 and
+`AO` → GP26). Each has a trim pot you will need to set on the actual
+track. Details in §0.7 and `docs/HARDWARE.md` §4.3.
 
 <img src="docs/img/hw/ir_module.png" width="300" alt="IR reflective module"> <img src="docs/img/hw/tcrt5000_element.png" width="130" alt="TCRT5000 element">
 
@@ -2303,14 +2317,14 @@ set on the actual track. Details in §0.7 and `docs/HARDWARE.md` §4.3.
 each `core/` file is)
 
 One driver serves two subsystems. `drv_ir` owns all three IR sensors:
-the two *line* sensors (GP6/GP7) are read on a timer, the *barcode*
+the two *line* sensors (GP16/GP6) are read on a timer, the *barcode*
 sensor (GP27) is interrupt-driven because bar widths are measured in
 microseconds. `sub_line` turns the two line bits into steering;
 `sub_barcode` turns the timed edges into a letter.
 
 | Your file | Talks to | Through | In plain terms |
 |---|---|---|---|
-| `drv_ir.c` (line) | the **Sense task** in `app_main.c` | `drv_ir_sample_line()` called every 5 ms | The Sense task reads GP6/GP7 and you publish the two bits. |
+| `drv_ir.c` (line) | the **Sense task** in `app_main.c` | `drv_ir_sample_line()` called every 5 ms | The Sense task reads GP16/GP6 and you publish the two bits. |
 | `drv_ir.c` (line) | `core/rc_event` | `rc_event_publish(RC_EVT_LINE_SAMPLE)` | "Left sees black / right sees black" — 200 times a second. |
 | `drv_ir.c` (barcode) | `core/rc_gpioirq` | `rc_gpioirq_attach(GP27, RC_EDGE_BOTH, …)`, `rc_gpioirq_enable()` | "Ring `barcode_isr` whenever the sensor flips black↔white"; muted when not reading a barcode. |
 | `drv_ir.c` (barcode) | `core/rc_time` | `rc_time_us()` in the ISR | Time between flips = width of the bar or gap. That width *is* the data. |
@@ -2348,9 +2362,13 @@ left, turn right, U-turn, or go straight).
 
 **How to get started**
 
-1. **Wire it up per `docs/HARDWARE.md` §4.3**: line-left DOUT → GP6,
-   line-right DOUT → GP7 (both digital, polled), barcode DOUT → GP27
-   (digital, interrupt-driven), barcode AOUT → GP26/ADC0.
+1. **Wire it up per `docs/HARDWARE.md` §4.3**: line sensor 1 (left) DO →
+   GP16 on Grove 4, line sensor 2 (right) DO → GP6 on Grove 5 (both
+   digital, polled), barcode DO → GP27 (digital, interrupt-driven) and
+   barcode AO → GP26/ADC0, both on Grove 6. **Leave line sensor 2's AO
+   pin unconnected** — Grove 5's other signal pin is GP26, the same pin
+   as the barcode AO, and two analogue outputs shorted together read as
+   garbage on both.
 2. **Check sensor polarity before anything else.** `IR_ACTIVE_HIGH` at the
    top of `drv_ir.c` says HIGH-on-the-pin means "over the line." On the
    Waveshare ST188 board this is correct, but if you're using TCRT5000
@@ -3124,8 +3142,8 @@ more bar/space width:
 **Files:** `subsystems/sub_terrain.c/.h`, `drivers/drv_imu.c/.h`
 
 **Your hardware** — 1 × GY-511 breakout (LSM303DLHC accelerometer +
-magnetometer, **no gyroscope**) on I2C1: SDA → GP2, SCL → GP3 (Robo Pico
-Grove 2, after the §0.5.3 pin patch). Mount it flat and rigid. Details in
+magnetometer, **no gyroscope**) on I2C0: SDA → GP4, SCL → GP5 (Robo Pico
+Grove 3, after the §0.5.3 pin patch). Mount it flat and rigid. Details in
 §0.7 and `docs/HARDWARE.md` §4.4.
 
 <img src="docs/img/hw/gy511_lsm303dlhc.jpg" width="260" alt="GY-511 breakout">
@@ -3142,7 +3160,7 @@ directly).
 
 | Your file | Talks to | Through | In plain terms |
 |---|---|---|---|
-| `drv_imu.c` | the RTOS port's I2C driver | `<dev_i2c.h>` — `tk_opn_dev` plus the port's device read/write calls on I2C1 | Reads six bytes of accelerometer and six of magnetometer from the chip at addresses `0x19` / `0x1E` (GP2/GP3 after the §0.5.3 pin patch). |
+| `drv_imu.c` | the RTOS port's I2C driver | `<dev_i2c.h>` — `tk_opn_dev("iica")` plus the port's device read/write calls on I2C0 | Reads six bytes of accelerometer and six of magnetometer from the chip at addresses `0x19` / `0x1E` (GP4/GP5 after the §0.5.3 pin patch). |
 | `drv_imu.c` | the **Sense task** in `app_main.c` | `drv_imu_sample()` called every 10 ms | The Sense task is the clock; you don't own a task. |
 | `drv_imu.c` | `core/rc_event` | `rc_event_publish(RC_EVT_IMU_SAMPLE)` | One parcel per sample with raw x/y/z and the derived pitch in tenths of a degree. |
 | `drv_imu.c` | `core/rc_config.h` | `RC_I2C_UNIT_IMU`, `RC_I2C_ADDR_ACCEL`, `RC_I2C_ADDR_MAG` | Which bus and which chip addresses. |
@@ -3180,7 +3198,9 @@ every trick in this module works around that missing piece.
    (Buddy 2's territory), not the IMU; hump height comes from pitch angle,
    not double-integrated acceleration.
 2. **Wire and mount the board.** GY-511 (LSM303DLHC chip) on I²C. Per
-   `docs/HARDWARE.md` §4.4: SDA→GP2, SCL→GP3, VCC→3V3, GND→GND. Mount it
+   `docs/HARDWARE.md` §4.4: SDA→GP4, SCL→GP5, VIN→3V3, GND→GND (one Grove
+   cable into Grove 3; SDA is the lower-numbered pin, fixed by the chip).
+   Mount it
    **rigidly** — if it's on a wobbly standoff, it registers its own wobble
    as fake terrain.
 3. **Bring the driver up.** Call `drv_imu_init()` once at startup. It
@@ -3585,9 +3605,9 @@ full reboot.
 **Files:** `subsystems/sub_scan.c/.h`, `drivers/drv_ultrasonic.c/.h`,
 `drivers/drv_servo.c/.h`
 
-**Your hardware** — 1 × HC-SR04 ultrasonic ranger (TRIG → GP16, ECHO →
-GP17 **through a 1 kΩ / 2 kΩ divider**, 5 V supply) mounted on 1 ×
-SG90-class servo (Robo Pico servo port 1, GP12) with a pan bracket.
+**Your hardware** — 1 × HC-SR04 ultrasonic ranger on Grove 2 (TRIG → GP2,
+ECHO → GP3 **through a 1 kΩ / 2 kΩ divider**) mounted on 1 × SG90-class
+servo (Robo Pico servo port 4, GP15) with a pan bracket.
 Details in §0.7 and `docs/HARDWARE.md` §4.5.
 
 <img src="docs/img/hw/hcsr04.jpg" width="260" alt="HC-SR04"> <img src="docs/img/hw/servo_sg90.png" width="300" alt="SG90 servo">
@@ -3601,9 +3621,9 @@ stopwatch, the defer list *and* the RP2040's hardware timer alarms.
 
 | Your file | Talks to | Through | In plain terms |
 |---|---|---|---|
-| `drv_servo.c` | `core/rc_pwm` | `rc_pwm_init_pin(GP12, 50)`, `rc_pwm_set_pulse_us()`, `rc_pwm_enable()` | "Hold this angle" becomes a 1000–2000 µs pulse fifty times a second. `drv_servo_settle_ms()` estimates how long the horn takes to get there. |
+| `drv_servo.c` | `core/rc_pwm` | `rc_pwm_init_pin(GP15, 50)`, `rc_pwm_set_pulse_us()`, `rc_pwm_enable()` | "Hold this angle" becomes a 1000–2000 µs pulse fifty times a second. `drv_servo_settle_ms()` estimates how long the horn takes to get there. |
 | `drv_ultrasonic.c` | the RTOS's timer interrupts | `tk_def_int(INTNO_TIMER_1 / _2)` directly (not via `core/`) | Alarm 1 ends the 12 µs TRIG pulse; alarm 2 gives up if no echo arrives within 30 ms. No delay loops anywhere. |
-| `drv_ultrasonic.c` | `core/rc_gpioirq` | `rc_gpioirq_attach(GP17, RC_EDGE_BOTH, …)`, `rc_gpioirq_enable(GP17, on/off)` | "Ring `echo_isr` on both edges" — but only while a ping is live, so a stray edge can't fake a reading. |
+| `drv_ultrasonic.c` | `core/rc_gpioirq` | `rc_gpioirq_attach(GP3, RC_EDGE_BOTH, …)`, `rc_gpioirq_enable(GP3, on/off)` | "Ring `echo_isr` on both edges" — but only while a ping is live, so a stray edge can't fake a reading. |
 | `drv_ultrasonic.c` | `core/rc_time` | timestamps in `echo_isr` | Echo went high at *t1*, low at *t2*; `t2 − t1` in µs × 343 m/s ÷ 2 = distance. |
 | `drv_ultrasonic.c` | `core/rc_defer` | `rc_defer_register(ultra_drain)`, `rc_defer_signal_i()` | ISR stores the two timestamps and rings the bell; `ultra_drain` does the division and publishes. |
 | `drv_ultrasonic.c` | `core/rc_event` | `rc_event_publish(RC_EVT_ULTRA_RESULT)` | Range in mm, valid flag, and the servo angle it was tagged with. `sub_nav` watches these for the "something ahead" trigger. |
@@ -3640,8 +3660,9 @@ swerve right, or stop.
 **How to get started**
 
 1. **Wire it correctly first** (`docs/HARDWARE.md` §4.5): servo signal →
-   GP12, HC-SR04 TRIG → GP16, HC-SR04 ECHO → GP17 **through a voltage
-   divider** (1 kΩ ECHO→GP17, 2 kΩ GP17→GND). The RP2040 is not 5V
+   GP15 (servo port 4), HC-SR04 on Grove 2: TRIG → GP2, ECHO → GP3
+   **through a voltage divider** (1 kΩ ECHO→GP3, 2 kΩ GP3→GND). The
+   RP2040 is not 5V
    tolerant and ECHO is a 5V signal — skipping the divider is the fastest
    way to destroy the board.
 2. **Centre the servo mechanically at 90° before bolting on the bracket.**

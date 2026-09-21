@@ -50,9 +50,9 @@ rc_result_t drv_motor_set_pair(int16_t left_permille, int16_t right_permille);
 /* Stop both wheels, either coasting or braking - see rc_motor_stop_t above. */
 rc_result_t drv_motor_stop(rc_motor_stop_t mode);
 
-/* Last commanded value, for telemetry. Also used by drv_encoder.c to work
- * out which direction a wheel is spinning, since the encoder hardware
- * itself can't tell direction (see drv_encoder.h). */
+/* Last commanded value, for telemetry. (Wheel direction is measured by
+ * the encoder's B channel now - see drv_encoder.h - so this is no longer
+ * used to infer it.) */
 int16_t drv_motor_get(rc_side_t side);
 
 #endif /* DRV_MOTOR_H */

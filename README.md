@@ -120,4 +120,6 @@ obvious approach does not work.
 1. Read `docs/HARDWARE.md` §1. Apply the I²C and `BOARD_LED_PIN` patches.
 2. Measure your car and update the mechanical constants in `rc_config.h`.
 3. Check `IR_ACTIVE_HIGH` in `drv_ir.c` against your sensor modules.
-4. Build `SMP=0` first. Work through the bring-up table in §7.
+4. Build `SMP=0` first, always with `CONSOLE=usb_cdc` (GP0/GP1 are the left
+   encoder, so the UART console is not available). Work through the bring-up
+   table in §7.

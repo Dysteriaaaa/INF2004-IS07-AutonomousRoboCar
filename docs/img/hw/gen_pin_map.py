@@ -75,7 +75,7 @@ F_SMALL = font("arial.ttf", 17)
 F_HEAD  = font("arialbd.ttf", 18)
 
 # ----------------------------------------------------------------- geometry
-W, H      = 2400, 1720
+W, H      = 2400, 1760
 ROW_H     = 54
 ROWS      = 20
 TOP       = 268
@@ -122,26 +122,26 @@ P = "pwr"
 IO = "io"
 
 left = [
-    (1,  IO, "GP0",  "UART0 TX",     C_UART, "GROVE 1",      "Console TX \u2192 USB-serial",  "used"),
-    (2,  IO, "GP1",  "UART0 RX",     C_UART, "GROVE 1",      "Console RX \u2190 USB-serial",  "used"),
+    (1,  IO, "GP0",  "GPIO in, IRQ", C_GPIO, "GROVE 1",      "Left encoder A",                "warn"),
+    (2,  IO, "GP1",  "GPIO in",      C_GPIO, "GROVE 1",      "Left encoder B (direction)",    "warn"),
     (3,  G,  "",     "GND",          C_GND,  "",             "",                              "free"),
-    (4,  IO, "GP2",  "I\u00b2C1 SDA", C_I2C, "GROVE 2 / MAKER", "IMU SDA (LSM303DLHC)",       "warn"),
-    (5,  IO, "GP3",  "I\u00b2C1 SCL", C_I2C, "GROVE 2 / MAKER", "IMU SCL (LSM303DLHC)",       "warn"),
-    (6,  IO, "GP4",  "GPIO in, IRQ", C_GPIO, "GROVE 3",      "Left wheel encoder",            "used"),
-    (7,  IO, "GP5",  "GPIO in, IRQ", C_GPIO, "GROVE 3",      "Right wheel encoder",           "used"),
+    (4,  IO, "GP2",  "GPIO out",     C_GPIO, "GROVE 2",      "HC-SR04 TRIG",                  "used"),
+    (5,  IO, "GP3",  "GPIO in, IRQ", C_GPIO, "GROVE 2",      "HC-SR04 ECHO \u2014 5 V!",      "warn"),
+    (6,  IO, "GP4",  "I\u00b2C0 SDA", C_I2C, "GROVE 3",      "IMU SDA (LSM303DLHC)",          "warn"),
+    (7,  IO, "GP5",  "I\u00b2C0 SCL", C_I2C, "GROVE 3",      "IMU SCL (LSM303DLHC)",          "warn"),
     (8,  G,  "",     "GND",          C_GND,  "",             "",                              "free"),
-    (9,  IO, "GP6",  "GPIO in",      C_GPIO, "GROVE 5",      "IR line sensor L \u2014 DOUT",  "used"),
-    (10, IO, "GP7",  "GPIO in",      C_GPIO, "GROVE 7",      "IR line sensor R \u2014 DOUT",  "used"),
+    (9,  IO, "GP6",  "GPIO in",      C_GPIO, "GROVE 5",      "IR line sensor 2 (R) \u2014 DO", "warn"),
+    (10, IO, "GP7",  "GPIO in, IRQ", C_GPIO, "GROVE 7",      "Right encoder A",               "used"),
     (11, IO, "GP8",  "PWM 4A",       C_PWM,  "MOTOR 1  M1A", "Left motor A",                  "used"),
     (12, IO, "GP9",  "PWM 4B",       C_PWM,  "MOTOR 1  M1B", "Left motor B",                  "used"),
     (13, G,  "",     "GND",          C_GND,  "",             "",                              "free"),
     (14, IO, "GP10", "PWM 5A",       C_PWM,  "MOTOR 2  M2A", "Right motor A",                 "used"),
     (15, IO, "GP11", "PWM 5B",       C_PWM,  "MOTOR 2  M2B", "Right motor B",                 "used"),
-    (16, IO, "GP12", "PWM 6A",       C_PWM,  "SERVO 1",      "Scan servo (HC-SR04 pan)",      "used"),
+    (16, IO, "GP12", "PWM 6A",       C_PWM,  "SERVO 1",      "spare",                         "free"),
     (17, IO, "GP13", "PWM 6B",       C_PWM,  "SERVO 2",      "spare",                         "free"),
     (18, G,  "",     "GND",          C_GND,  "",             "",                              "free"),
     (19, IO, "GP14", "PWM 7A",       C_PWM,  "SERVO 3",      "spare",                         "free"),
-    (20, IO, "GP15", "PWM 7B",       C_PWM,  "SERVO 4",      "spare",                         "free"),
+    (20, IO, "GP15", "PWM 7B",       C_PWM,  "SERVO 4",      "Scan servo SG90 (HC-SR04 pan)", "used"),
 ]
 
 right = [
@@ -151,20 +151,20 @@ right = [
     (37, P,  "",     "3V3_EN",       C_PWR2, "",             "",                              "free"),
     (36, P,  "",     "3V3 (OUT)",    C_PWR,  "",             "3V3 rail \u2014 300 mA total",  "free"),
     (35, P,  "",     "ADC_VREF",     C_PWR2, "",             "",                              "free"),
-    (34, IO, "GP28", "ADC2",         C_ADC,  "GROVE 7",      "spare (analogue capable)",      "free"),
+    (34, IO, "GP28", "GPIO in",      C_GPIO, "GROVE 7",      "Right encoder B (direction)",   "used"),
     (33, G,  "",     "AGND",         C_GND,  "",             "",                              "free"),
-    (32, IO, "GP27", "GPIO 2-edge",  C_GPIO, "GROVE 6",      "IR barcode \u2014 DOUT",        "used"),
-    (31, IO, "GP26", "ADC0",         C_ADC,  "GROVE 5 + 6",  "IR barcode \u2014 AOUT",        "warn"),
+    (32, IO, "GP27", "GPIO 2-edge",  C_GPIO, "GROVE 6",      "IR barcode \u2014 DO",          "used"),
+    (31, IO, "GP26", "ADC0",         C_ADC,  "GROVE 6 (+5)", "IR barcode \u2014 AO",          "warn"),
     (30, P,  "",     "RUN",          C_PWR2, "",             "reset",                         "free"),
-    (29, IO, "GP22", "GPIO / PWM",   C_GPIO, "on-board",     "Piezo buzzer (unused)",         "free"),
+    (29, IO, "GP22", "GPIO / PWM",   C_GPIO, "on-board",     "Piezo buzzer (not used)",       "free"),
     (28, G,  "",     "GND",          C_GND,  "",             "",                              "free"),
-    (27, IO, "GP21", "GPIO in",      C_GPIO, "on-board",     "Button 2 (reserved)",           "free"),
-    (26, IO, "GP20", "GPIO in",      C_GPIO, "on-board",     "Button 1 (reserved)",           "free"),
+    (27, IO, "GP21", "GPIO in",      C_GPIO, "on-board",     "Button 2 (not used)",           "free"),
+    (26, IO, "GP20", "GPIO in",      C_GPIO, "on-board",     "Button 1 (not used)",           "free"),
     (25, IO, "GP19", "GPIO out",     C_GPIO, "breakout hdr", "Status LED + 330 \u03a9",       "warn"),
-    (24, IO, "GP18", "PIO",          C_GPIO, "on-board",     "2 \u00d7 WS2812 RGB (unused)",  "free"),
+    (24, IO, "GP18", "PIO",          C_GPIO, "on-board",     "2 \u00d7 WS2812 RGB (not used)", "free"),
     (23, G,  "",     "GND",          C_GND,  "",             "",                              "free"),
-    (22, IO, "GP17", "GPIO in, IRQ", C_GPIO, "GROVE 4",      "HC-SR04 ECHO \u2014 5 V!",      "warn"),
-    (21, IO, "GP16", "GPIO out",     C_GPIO, "GROVE 4",      "HC-SR04 TRIG",                  "warn"),
+    (22, IO, "GP17", "GPIO",         C_GPIO, "GROVE 4",      "spare (line 1's AO, unused)",   "free"),
+    (21, IO, "GP16", "GPIO in",      C_GPIO, "GROVE 4",      "IR line sensor 1 (L) \u2014 DO", "warn"),
 ]
 
 # ----------------------------------------------------------------- heading
@@ -218,7 +218,7 @@ d.rounded_rectangle([sx0, sy0, sx1, sy1], radius=14, fill=SOCK_F, outline=SOCK_E
 # USB shield at the top of the socket
 d.rounded_rectangle([(sx0 + sx1) / 2 - 42, sy0 - 26, (sx0 + sx1) / 2 + 42, sy0 + 20],
                     radius=8, fill="#d7dade", outline="#8c9196", width=3)
-ctext((sx0 + sx1) / 2, sy0 + 46, "USB", F_SMALL, "#ffffff")
+ctext((sx0 + sx1) / 2, sy0 + 46, "USB = console", F_SMALL, "#ffffff")
 # RP2040
 d.rounded_rectangle([(sx0 + sx1) / 2 - 62, (sy0 + sy1) / 2 - 62, (sx0 + sx1) / 2 + 62, (sy0 + sy1) / 2 + 62],
                     radius=8, fill="#20242a", outline="#0e1013", width=2)
@@ -275,15 +275,17 @@ ny = TOP + ROWS * ROW_H + 52
 d.text((70, ny), "Conflicts handled (full detail in docs/HARDWARE.md \u00a71):", font=F_NOTEB, fill=INK)
 ny += 33
 notes = [
-    "1.  GP2 / GP3 \u2014 the port's I\u00b2C1 driver defaults to GP6/GP7, which are the two IR line sensors, and I\u00b2C0 defaults to GP8/GP9, which are the left motor. "
-    "I\u00b2C1 is re-pinned to GP2/GP3 in i2c_rp2040.c.",
-    "2.  GP16 / GP19 \u2014 the port defaults BOARD_LED_PIN to GP16, which this project needs for the ultrasonic TRIG, so it is moved to GP19 in sysdef.h. "
-    "The Pico W's on-board LED is wired to the CYW43439 radio rather than to an RP2040 pin, so an external LED is required.",
-    "3.  GP17 \u2014 the HC-SR04 ECHO line idles at 5 V and the RP2040 is not 5 V tolerant. Fit 1 k\u03a9 from ECHO to GP17 and 2 k\u03a9 from GP17 to GND (3.33 V at the pin). "
+    "1.  GP0 / GP1 \u2014 these are also UART0, the port's default console. The left encoder lives here, so every build MUST be CONSOLE=usb_cdc: "
+    "the console comes out of the Pico's own USB port and no UART pin is driven.",
+    "2.  GP4 / GP5 \u2014 in RP2040 silicon GP4 is I\u00b2C0 SDA and GP5 is I\u00b2C0 SCL, fixed. The port's I\u00b2C0 driver defaults to GP8/GP9 (the left motor), "
+    "so its unit-0 pin table is re-pinned to GP4/GP5 in i2c_rp2040.c and the IMU opens \"iica\". Wire SDA\u2192GP4, SCL\u2192GP5.",
+    "3.  GP3 \u2014 the HC-SR04 ECHO line idles at 5 V and the RP2040 is not 5 V tolerant. Fit 1 k\u03a9 from ECHO to GP3 and 2 k\u03a9 from GP3 to GND (3.33 V at the pin). "
     "Connecting it directly destroys the board.",
-    "4.  GP26 \u2014 the Robo Pico silkscreen carries GP26 on BOTH Grove 5 and Grove 6. Grove 5 also carries GP6 (line sensor L), so make sure nothing on Grove 5 drives GP26 "
-    "or it will fight the barcode sensor's analogue output.",
-    "5.  PWM slices 4, 5 and 6 are consumed by the two motors and the scan servo, so the kernel's PWM-based StartPhysicalTimer cannot use them. "
+    "4.  GP16 / GP19 \u2014 the port defaults BOARD_LED_PIN to GP16, which is line sensor 1 here, so it is moved to GP19 in sysdef.h. "
+    "The Pico W's on-board LED is wired to the CYW43439 radio rather than to an RP2040 pin, so an external LED is required.",
+    "5.  GP26 / GP6 \u2014 the Robo Pico routes GP26 to BOTH Grove 6 pin 1 and Grove 5 pin 2. Line sensor 2 sits on Grove 5: connect only its DO wire (GP6) "
+    "and leave its AO unconnected, or it is shorted onto the barcode sensor's AO.",
+    "6.  PWM slices 4, 5 and 7 are consumed by the two motors and the scan servo, so the kernel's PWM-based StartPhysicalTimer cannot use them. "
     "This tree uses the RP2040 TIMER alarms instead, which the kernel never touches.",
 ]
 def wrap(text, f, maxw):
