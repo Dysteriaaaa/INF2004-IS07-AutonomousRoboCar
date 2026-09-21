@@ -56,7 +56,8 @@ docs/         HARDWARE.md (wiring/setup reference) and Robo_Pico.pdf (shared boa
                 buddy4 = LSM303DLHC/OKY3231-2, buddy5 = HC-SR04, buddy1 = Pico W)
               img/hw/ - part photos, pin map diagrams + the scripts that generate them
               img/week6/ - the Week 6 report figures (d2 pin layout ... d6 sequences)
-              report/ - Week 6 design review (.docx), its template, the project brief
+              report/ - Week 6 design review (.docx) and its template
+              Project Write-up.pdf - the assignment brief, kept at the docs root
 build/        setup.sh / build.sh / flash.sh, robocar.mk (the makefile hook),
               patch_port.py (board patches); build/out/ holds the .uf2 images
 external/     mtk3smp-rp2040 kernel port as a pinned git submodule
