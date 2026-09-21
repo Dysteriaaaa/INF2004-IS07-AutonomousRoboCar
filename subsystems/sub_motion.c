@@ -4,7 +4,7 @@
  *  The "brain" of Buddy 2's module: decides what duty to send the motors
  *  every control cycle so the wheels track a target speed (PID control)
  *  or a target distance/turn, and runs the non-blocking move state
- *  machine described in sub_motion.h. See TEAM_GUIDE.md's Buddy 2 section
+ *  machine described in sub_motion.h. See docs/buddy2-motion/buddy2-motion.md
  *  for the full plain-English walkthrough.
  */
 #include "rc_prelude.h"
@@ -20,8 +20,10 @@
  * self-explanatory instead of a mess of magic numbers. */
 typedef enum {
     MODE_IDLE = 0,     /* motors off / no move in progress */
-    MODE_DISTANCE,      /* driving straight toward a distance goal (PID-controlled speed) */
-    MODE_TURN,          /* turning toward a target angle (currently a stub, see TODO below) */
+    /* driving straight toward a distance goal (PID-controlled speed) */
+    MODE_DISTANCE,
+    /* turning toward a target angle (currently a stub, see TODO below) */
+    MODE_TURN,
     MODE_CONTINUOUS     /* open-ended drive+steer, used by the line follower */
 } mode_t;
 
@@ -67,18 +69,25 @@ typedef struct {
  * change them directly, only through the public functions below. There's
  * exactly one car, so this is simpler than passing a struct pointer
  * around everywhere. */
-static mode_t   mode;                 /* current state-machine mode, see mode_t above */
+/* current state-machine mode, see mode_t above */
+static mode_t   mode;
 static pid_t    pid_l;                /* left wheel's PID controller */
 static pid_t    pid_r;                /* right wheel's PID controller */
-static uint16_t target_mm_s = 250U;   /* cruise speed target for distance moves */
+/* cruise speed target for distance moves */
+static uint16_t target_mm_s = 250U;
 static int16_t  base_cmd;             /* base duty for MODE_CONTINUOUS */
 static int16_t  steer_cmd;            /* steering bias for MODE_CONTINUOUS */
-static uint32_t goal_mm;              /* distance target for the current MODE_DISTANCE move */
-static uint32_t move_id_next = 1U;    /* next move id to hand out (0 is reserved for "no move") */
+/* distance target for the current MODE_DISTANCE move */
+static uint32_t goal_mm;
+/* next move id to hand out (0 is reserved for "no move") */
+static uint32_t move_id_next = 1U;
 static uint32_t move_id_cur;          /* id of whichever move is running now */
-static sub_motion_done_cb_t done_cb;  /* callback to fire when the current move finishes */
-static void    *done_ctx;             /* caller's context pointer, passed back unchanged to done_cb */
-static ID       motion_tskid;         /* RTOS task id of the background control task, motion_task() */
+/* callback to fire when the current move finishes */
+static sub_motion_done_cb_t done_cb;
+/* caller's context pointer, passed back unchanged to done_cb */
+static void    *done_ctx;
+/* RTOS task id of the background control task, motion_task() */
+static ID       motion_tskid;
 
 /* ------------------------------------------------------------------ *
  *  PID
@@ -181,6 +190,19 @@ static int32_t pid_step(pid_t *p, int32_t err, int32_t dt_ms)
  * the RC_EVT_MOTION_DONE event for anyone listening on the bus, and call
  * the caller's own callback (if they gave one). Called both when a move
  * finishes normally and when it's cut short (stopped or pre-empted). */
+/* Keep a 32-bit PID result inside the -1000..+1000 permille range the
+ * motor driver accepts. */
+static int32_t clamp_duty(int32_t v)
+{
+    if (v > 1000) {
+        return 1000;
+    }
+    if (v < -1000) {
+        return -1000;
+    }
+    return v;
+}
+
 static void finish_move(bool completed)
 {
     rc_event_t evt;
@@ -203,7 +225,7 @@ static void finish_move(bool completed)
     move_id_cur = 0U;
     (void)drv_motor_stop(RC_MOTOR_BRAKE);
 
-    /* Publish on the shared event bus (see TEAM_GUIDE.md §0.2) so any
+    /* Publish on the shared event bus (see TEAM_GUIDE.md §1.2) so any
      * other subsystem - not just the caller who started this move - can
      * find out a move finished (e.g. telemetry logging it). */
     evt.id = RC_EVT_MOTION_DONE;
@@ -239,7 +261,8 @@ static uint32_t start_move(mode_t m, uint32_t target,
     move_id_cur = move_id_next;
     move_id_next++;
     if (move_id_next == 0U) {
-        move_id_next = 1U;   /* skip 0: that value is reserved to mean "no move" */
+        /* skip 0: that value is reserved to mean "no move" */
+        move_id_next = 1U;
     }
     mode = m;
 
@@ -278,7 +301,7 @@ static void motion_task(INT stacd, void *exinf)
 
     for (;;) {
         /* Sleep (yield the CPU) for one control period. This is the
-         * non-blocking pattern from TEAM_GUIDE.md §0.3 applied at the
+         * non-blocking pattern from TEAM_GUIDE.md §1.3 applied at the
          * task level: the task isn't spinning/busy-waiting, it's parked
          * by the RTOS and other tasks run in the meantime. */
         tk_dly_tsk(RC_PERIOD_MOTION_MS);
@@ -321,6 +344,13 @@ static void motion_task(INT stacd, void *exinf)
                              RC_PERIOD_MOTION_MS);
             out_r = pid_step(&pid_r, (int32_t)target_mm_s - sp_r,
                              RC_PERIOD_MOTION_MS);
+            /* Clamp here, in 32-bit, before narrowing to int16_t: with
+             * big gains the raw PID output can exceed 32767 and a bare
+             * cast would flip its sign (full reverse instead of full
+             * forward). drv_motor_set clamps again, but only after the
+             * cast, which is too late. */
+            out_l = clamp_duty(out_l);
+            out_r = clamp_duty(out_r);
             (void)drv_motor_set_pair((int16_t)out_l, (int16_t)out_r);
             break;
 
@@ -339,7 +369,9 @@ static void motion_task(INT stacd, void *exinf)
              *  and fold a correction factor in here rather than trusting
              *  the geometry.
              */
-            finish_move(true);   /* stub: currently ends the "turn" instantly, does not actually turn the car */
+            /* stub: currently ends the "turn" instantly, does not actually turn
+             * the car */
+            finish_move(true);
             break;
 
         case MODE_CONTINUOUS:
@@ -419,7 +451,7 @@ rc_result_t sub_motion_set_speed(uint16_t mm_s)
 }
 
 /* Queue a "drive forward mm millimetres" move. Non-blocking - see
- * TEAM_GUIDE.md §0.3 and sub_motion.h's header comment. Returns a move id
+ * TEAM_GUIDE.md §1.3 and sub_motion.h's header comment. Returns a move id
  * immediately while the actual driving happens in motion_task above. */
 uint32_t sub_motion_forward_mm(uint32_t mm, sub_motion_done_cb_t cb, void *ctx)
 {

@@ -1,18 +1,38 @@
 /*
  *  sub_telemetry.c
  */
-#include "rc_prelude.h"   /* project-wide basics: fixed-width int types (uint32_t etc.), bool, common macros */
-#include <tm/tmonitor.h>  /* RTOS "target monitor" console I/O -- gives us tm_printf(), the debug-console print function */
+/* project-wide basics: fixed-width int types (uint32_t etc.), bool, common
+ * macros */
+#include "rc_prelude.h"
+/* RTOS "target monitor" console I/O -- gives us tm_printf(), the debug-console
+ * print function */
+#include <tm/tmonitor.h>
 
 #include "sub_telemetry.h"
-#include "rc_fmt.h"       /* rc_snprintf()/rc_strlen(): this project's own tiny stand-ins for the C standard library's snprintf/strlen (embedded builds often avoid the full libc) */
-#include "sub_terrain.h"  /* Buddy 4's module -- gives us sub_terrain_motion_class()/sub_terrain_max_peak_mm() to report */
-#include "sub_barcode.h"  /* Buddy 3's module -- gives us sub_barcode_last() to report the last decoded barcode char */
-#include "drv_motor.h"    /* Buddy 2's driver -- gives us drv_motor_get() to report current commanded motor duty */
-#include "drv_encoder.h"  /* Buddy 2's driver (included for future use / shared types) */
-#include "rc_config.h"    /* board-wide tunable constants, e.g. RC_PERIOD_TELEM_MS, RC_PRI_TELEMETRY, RC_STACK_SZ */
-#include "rc_event.h"     /* the event bus: rc_event_subscribe(), rc_event_dropped(), RC_LANE_* lane IDs */
-#include "rc_time.h"      /* rc_time_ms(): milliseconds-since-boot clock, used for timestamps */
+/* rc_snprintf()/rc_strlen(): this project's own tiny stand-ins for the C
+ * standard library's snprintf/strlen (embedded builds often avoid the full
+ * libc) */
+#include "rc_fmt.h"
+/* Buddy 4's module -- gives us
+ * sub_terrain_motion_class()/sub_terrain_max_peak_mm() to report */
+#include "sub_terrain.h"
+/* Buddy 3's module -- gives us sub_barcode_last() to report the last decoded
+ * barcode char */
+#include "sub_barcode.h"
+/* Buddy 2's driver -- gives us drv_motor_get() to report current commanded
+ * motor duty */
+#include "drv_motor.h"
+/* Buddy 2's driver (included for future use / shared types) */
+#include "drv_encoder.h"
+/* board-wide tunable constants, e.g. RC_PERIOD_TELEM_MS, RC_PRI_TELEMETRY,
+ * RC_STACK_SZ */
+#include "rc_config.h"
+/* the event bus: rc_event_subscribe(), rc_event_dropped(), RC_LANE_* lane IDs
+ * the event bus: rc_event_subscribe(), rc_event_dropped(), RC_LANE_* lane
+ * IDs */
+#include "rc_event.h"
+/* rc_time_ms(): milliseconds-since-boot clock, used for timestamps */
+#include "rc_time.h"
 
 /* #define creates a plain text-substitution constant -- the preprocessor
  * replaces every later use of TOPIC_MAX with the number (48) before the
@@ -59,12 +79,25 @@
  * sink. Everything in this file sends messages *through* whatever this
  * currently points at -- that's the whole "pluggable transport" trick. */
 static const sub_telemetry_sink_t *sink;
-static ID       telem_tskid;   /* the RTOS's handle/ID for the background telemetry task created in sub_telemetry_init() */
-static uint32_t seq;           /* monotonically increasing message counter, stamped into every "state" message so a listener can spot gaps/reordering */
-static uint32_t tx_count;      /* how many messages have been sent successfully so far -- reported in the heartbeat */
-static uint32_t tx_fail;       /* how many send attempts have failed so far (sink down, etc.) -- reported in the heartbeat */
-static sub_telemetry_cmd_cb_t cmd_cb;  /* the callback registered via sub_telemetry_on_command(), or NULL if none yet */
-static void    *cmd_ctx;               /* the opaque context pointer that comes back unchanged whenever cmd_cb is eventually called */
+/* the RTOS's handle/ID for the background telemetry task created in
+ * sub_telemetry_init() */
+static ID       telem_tskid;
+/* monotonically increasing message counter, stamped into every "state" message
+ * so a listener can spot gaps/reordering */
+static uint32_t seq;
+/* how many messages have been sent successfully so far -- reported in the
+ * heartbeat */
+static uint32_t tx_count;
+/* how many send attempts have failed so far (sink down, etc.) -- reported in
+ * the heartbeat */
+static uint32_t tx_fail;
+/* the callback registered via sub_telemetry_on_command(), or NULL if none yet
+ * the callback registered via sub_telemetry_on_command(), or NULL if none
+ * yet */
+static sub_telemetry_cmd_cb_t cmd_cb;
+/* the opaque context pointer that comes back unchanged whenever cmd_cb is
+ * eventually called */
+static void    *cmd_ctx;
 
 /* Cached state, updated by callbacks, serialised by the telemetry task.
  * Each field is written by exactly one callback and read by one task, so
@@ -78,11 +111,18 @@ static void    *cmd_ctx;               /* the opaque context pointer that comes 
  * the module's little "mailbox" of the latest known sensor values, kept
  * up to date by on_odometry()/on_line() below and read out whenever
  * publish_state() builds the next status message. */
-static volatile int32_t  st_speed_l;   /* left wheel speed, mm/s, signed (negative = reversing) -- last value from an RC_EVT_ODOMETRY event */
-static volatile int32_t  st_speed_r;   /* right wheel speed, mm/s, signed -- same source */
-static volatile uint32_t st_dist_mm;   /* average of left+right distance travelled, in millimetres -- see on_odometry() below */
-static volatile bool     st_line_l;    /* true if the left line sensor currently reports "on the black line" */
-static volatile bool     st_line_r;    /* true if the right line sensor currently reports "on the black line" */
+/* left wheel speed, mm/s, signed (negative = reversing) -- last value from an
+ * RC_EVT_ODOMETRY event */
+static volatile int32_t  st_speed_l;
+/* right wheel speed, mm/s, signed -- same source */
+static volatile int32_t  st_speed_r;
+/* average of left+right distance travelled, in millimetres -- see on_odometry()
+ * below */
+static volatile uint32_t st_dist_mm;
+/* true if the left line sensor currently reports "on the black line" */
+static volatile bool     st_line_l;
+/* true if the right line sensor currently reports "on the black line" */
+static volatile bool     st_line_r;
 
 /* ------------------------------------------------------------------ *
  *  Console sink. Always available, needs no radio, works from the first
@@ -170,7 +210,8 @@ const sub_telemetry_sink_t *sub_telemetry_console_sink(void)
  * (tx_count/tx_fail) in one place so callers don't have to repeat it. */
 static rc_result_t send(const char *leaf, const char *payload)
 {
-    char topic[TOPIC_MAX];   /* local (stack) buffer -- exists only while send() is running */
+    /* local (stack) buffer -- exists only while send() is running */
+    char topic[TOPIC_MAX];
     rc_result_t res;
 
     /* `sink == NULL` guards against calling through an uninitialised
@@ -230,20 +271,34 @@ static void publish_state(void)
         "{\"seq\":%lu,\"t\":%lu,\"spd_l\":%ld,\"spd_r\":%ld,"
         "\"dist\":%lu,\"m_l\":%d,\"m_r\":%d,\"line\":\"%c%c\","
         "\"cls\":%d,\"peak\":%u,\"bc\":\"%c\"}",
-        (unsigned long)seq,                /* message sequence number, see `seq` above */
-        (unsigned long)rc_time_ms(),       /* milliseconds since boot -- a lightweight timestamp */
-        (long)st_speed_l,                  /* left wheel speed, mm/s (from Buddy 2 via RC_EVT_ODOMETRY) */
+        /* message sequence number, see `seq` above */
+        (unsigned long)seq,
+        /* milliseconds since boot -- a lightweight timestamp */
+        (unsigned long)rc_time_ms(),
+        /* left wheel speed, mm/s (from Buddy 2 via RC_EVT_ODOMETRY) */
+        (long)st_speed_l,
         (long)st_speed_r,                  /* right wheel speed, mm/s */
         (unsigned long)st_dist_mm,         /* average distance travelled, mm */
-        (int)drv_motor_get(RC_SIDE_LEFT),  /* current commanded left motor duty (Buddy 2's driver) */
-        (int)drv_motor_get(RC_SIDE_RIGHT), /* current commanded right motor duty */
-        st_line_l ? '1' : '0',             /* '?:' is the ternary/conditional operator: "if st_line_l is true use '1', else use '0'" -- a compact inline if/else that produces a value */
+        /* current commanded left motor duty (Buddy 2's driver) */
+        (int)drv_motor_get(RC_SIDE_LEFT),
+        /* current commanded right motor duty */
+        (int)drv_motor_get(RC_SIDE_RIGHT),
+        /* '?:' is the ternary/conditional operator: "if st_line_l is true use
+         * '1', else use '0'" -- a compact inline if/else that produces a
+         * value */
+        st_line_l ? '1' : '0',
         st_line_r ? '1' : '0',
-        (int)sub_terrain_motion_class(),   /* Buddy 4's current motion classification (stationary/turning/climbing/...) */
-        (unsigned int)sub_terrain_max_peak_mm(), /* Buddy 4's tallest hump seen so far, mm */
-        (sub_barcode_last() != '\0') ? sub_barcode_last() : '-'); /* last decoded barcode char (Buddy 3), or '-' if none yet ('\0' is the null byte C uses to mean "no character") */
+        /* Buddy 4's current motion classification
+         * (stationary/turning/climbing/...) */
+        (int)sub_terrain_motion_class(),
+        /* Buddy 4's tallest hump seen so far, mm */
+        (unsigned int)sub_terrain_max_peak_mm(),
+        /* last decoded barcode char (Buddy 3), or '-' if none yet ('\0' is the
+         * null byte C uses to mean "no character") */
+        (sub_barcode_last() != '\0') ? sub_barcode_last() : '-');
 
-    seq++;                    /* bump the sequence counter for the *next* message */
+    /* bump the sequence counter for the *next* message */
+    seq++;
     (void)send("state", buf); /* publishes to topic "car/01/state" */
 }
 
@@ -265,10 +320,11 @@ static void publish_heartbeat(void)
          * was full) on each lane -- RC_LANE_FAST is the high-priority
          * "steer/react now" lane, RC_LANE_SLOW the lower-priority
          * "logging/telemetry can wait" lane this module itself uses
-         * (see §0.2 of TEAM_GUIDE.md for the fast/slow lane concept). */
+         * (see §1.2 of TEAM_GUIDE.md for the fast/slow lane concept). */
         (unsigned long)rc_event_dropped(RC_LANE_FAST),
         (unsigned long)rc_event_dropped(RC_LANE_SLOW),
-        (sink != NULL) ? sink->name : "none");  /* name of the currently active transport, or "none" if not yet set */
+        /* name of the currently active transport, or "none" if not yet set */
+        (sink != NULL) ? sink->name : "none");
 
     (void)send("status", buf);  /* publishes to topic "car/01/status" */
 }
@@ -283,7 +339,7 @@ static void publish_heartbeat(void)
  * (via rc_event_subscribe()), and the event bus calls them automatically
  * whenever that kind of event is published anywhere in the program --
  * this module never calls Buddy 2/3's code directly, it just reacts to
- * their announcements. See TEAM_GUIDE.md §0.2 for the publish/subscribe
+ * their announcements. See TEAM_GUIDE.md §1.2 for the publish/subscribe
  * idea. Every subscriber callback has the same shape: a pointer to the
  * event data, and the `ctx` pointer that was supplied at subscribe time
  * (unused here, hence the `(void)ctx;` "I know, ignore it" line).
@@ -343,7 +399,8 @@ rc_result_t sub_telemetry_publish_event(const rc_event_t *evt)
     char buf[PAYLOAD_MAX];
 
     switch (evt->id) {
-    case RC_EVT_BARCODE_DECODED:  /* Buddy 3 decoded a barcode character -> topic car/01/barcode */
+    /* Buddy 3 decoded a barcode character -> topic car/01/barcode */
+    case RC_EVT_BARCODE_DECODED:
         (void)rc_snprintf(buf, sizeof(buf),
             "{\"sym\":\"%c\",\"cmd\":%d,\"rev\":%d}",
             evt->u.barcode.symbol,
@@ -351,7 +408,8 @@ rc_result_t sub_telemetry_publish_event(const rc_event_t *evt)
             evt->u.barcode.reversed ? 1 : 0);
         return send("barcode", buf);
 
-    case RC_EVT_HUMP_END:  /* Buddy 4 finished tracking a speed hump -> topic car/01/hump */
+    /* Buddy 4 finished tracking a speed hump -> topic car/01/hump */
+    case RC_EVT_HUMP_END:
         (void)rc_snprintf(buf, sizeof(buf),
             "{\"peak_mm\":%u,\"ms\":%lu,\"pitch\":%d}",
             (unsigned int)evt->u.hump.peak_mm,
@@ -359,7 +417,9 @@ rc_result_t sub_telemetry_publish_event(const rc_event_t *evt)
             (int)evt->u.hump.max_pitch_deg);
         return send("hump", buf);
 
-    case RC_EVT_OBSTACLE_PROFILE:  /* Buddy 5 finished a scan and built an obstacle profile -> topic car/01/obstacle */
+    /* Buddy 5 finished a scan and built an obstacle profile -> topic
+     * car/01/obstacle */
+    case RC_EVT_OBSTACLE_PROFILE:
         (void)rc_snprintf(buf, sizeof(buf),
             "{\"n\":%u,\"near_mm\":%u,\"at_deg\":%d,\"w_mm\":%u,"
             "\"cl_l\":%u,\"cl_r\":%u}",
@@ -371,7 +431,9 @@ rc_result_t sub_telemetry_publish_event(const rc_event_t *evt)
             (unsigned int)evt->u.profile.clearance_right_mm);
         return send("obstacle", buf);
 
-    case RC_EVT_IMPACT:  /* Buddy 4's IMU detected a hard jolt -> topic car/01/impact; fixed payload, nothing to fill in */
+    /* Buddy 4's IMU detected a hard jolt -> topic car/01/impact; fixed payload,
+     * nothing to fill in */
+    case RC_EVT_IMPACT:
         return send("impact", "{\"impact\":1}");
 
     default:
@@ -415,7 +477,7 @@ static void telemetry_task(INT stacd, void *exinf)
          * sleep for RC_PERIOD_TELEM_MS milliseconds, letting every other
          * task run in the meantime -- this is what makes the telemetry
          * loop periodic without a busy `while` loop burning CPU. See
-         * TEAM_GUIDE.md §0.3 for why nothing in this codebase is allowed
+         * TEAM_GUIDE.md §1.3 for why nothing in this codebase is allowed
          * to block/spin instead. RC_PERIOD_TELEM_MS lives in
          * rc_config.h, the shared tunables file every subsystem's
          * period/pin constants live in (see also RC_PERIOD_IMU_MS used
@@ -457,13 +519,14 @@ rc_result_t sub_telemetry_init(void)
      * same struct-of-settings pattern used all over embedded RTOS APIs. */
     T_CTSK ctsk;
 
-    sink = &console_sink;   /* default transport until/unless sub_telemetry_set_sink() is called */
+    /* default transport until/unless sub_telemetry_set_sink() is called */
+    sink = &console_sink;
 
     /* rc_event_subscribe(event_id, lane, callback, ctx): registers a
      * callback against one event ID on one lane. Every subscription
      * here uses RC_LANE_SLOW because telemetry must never be allowed to
      * delay the fast/reactive lane used for steering and obstacle
-     * response -- see TEAM_GUIDE.md §0.2. `(void)` on each call discards
+     * response -- see TEAM_GUIDE.md §1.2. `(void)` on each call discards
      * the subscribe result (an rc_result_t) since these are expected to
      * always succeed at boot; NULL is passed as `ctx` because none of
      * these callbacks need any extra context beyond the event itself. */

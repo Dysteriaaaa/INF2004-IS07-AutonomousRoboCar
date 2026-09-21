@@ -22,7 +22,7 @@
  * car has started climbing a hump, in tenths of a degree (40 = 4.0
  * degrees). Used in on_sample() below. Needs to sit comfortably above
  * the pitch noise seen during normal acceleration/braking/cornering on
- * flat ground - see "Tune hump thresholds empirically" in TEAM_GUIDE.md. */
+ * flat ground - see "Tune hump thresholds empirically" in the Buddy 4 guide. */
 #define PITCH_ENTER_DDEG    (40)     /* 4.0 degrees */
 /* Pitch angle the car must settle back within before we consider the
  * hump finished (smaller than PITCH_ENTER_DDEG on purpose - this gap
@@ -51,22 +51,33 @@
  * error-prone than remembering "1 means climbing." */
 typedef enum {
     H_FLAT = 0,       /* not currently on a hump - the normal/default state */
-    H_CLIMBING,       /* pitch has crossed PITCH_ENTER_DDEG nose-up; front wheels are going up the ramp */
-    H_DESCENDING       /* pitch has swung past crest and gone nose-down; car is coming back down */
+    /* pitch has crossed PITCH_ENTER_DDEG nose-up; front wheels are going up the
+     * ramp */
+    H_CLIMBING,
+    /* pitch has swung past crest and gone nose-down; car is coming back down */
+    H_DESCENDING
 } hump_state_t;
 
 /* `static` module-level variables: private state remembered between
  * calls, visible only inside this file (see the same pattern explained
  * in drv_imu.c). Together these track "where are we in a hump right
  * now" and "what's the car doing overall." */
-static hump_state_t      h_state;             /* current phase of the hump state machine */
-static uint32_t          h_start_ms;           /* rc_time_ms() timestamp when the current hump/climb began */
-static int16_t           h_peak_pitch;         /* steepest pitch (tenths of a degree) seen so far this hump */
-static uint16_t          max_peak_mm;           /* tallest hump height (mm) seen across the whole run so far */
-static rc_motion_class_t m_class;               /* current motion category, e.g. cruising/turning/climbing */
-static uint32_t          dist_at_hump_start;    /* left-wheel odometry distance (mm) recorded when the hump began */
-static sub_terrain_hump_cb_t user_cb;           /* optional caller-registered "hump finished" callback, or NULL */
-static void             *user_ctx;              /* opaque pointer handed back unchanged to user_cb, see sub_terrain.h */
+/* current phase of the hump state machine */
+static hump_state_t      h_state;
+/* rc_time_ms() timestamp when the current hump/climb began */
+static uint32_t          h_start_ms;
+/* steepest pitch (tenths of a degree) seen so far this hump */
+static int16_t           h_peak_pitch;
+/* tallest hump height (mm) seen across the whole run so far */
+static uint16_t          max_peak_mm;
+/* current motion category, e.g. cruising/turning/climbing */
+static rc_motion_class_t m_class;
+/* left-wheel odometry distance (mm) recorded when the hump began */
+static uint32_t          dist_at_hump_start;
+/* optional caller-registered "hump finished" callback, or NULL */
+static sub_terrain_hump_cb_t user_cb;
+/* opaque pointer handed back unchanged to user_cb, see sub_terrain.h */
+static void             *user_ctx;
 
 /* ------------------------------------------------------------------ *
  *  Peak height estimate
@@ -154,7 +165,8 @@ static uint16_t pitch_to_height_mm(int16_t peak_ddeg)
 static void classify(const rc_pl_imu_t *s, int16_t pitch)
 {
     rc_motion_class_t next = m_class;
-    int32_t           ax = s->acc_x;   /* `->` reads a field through a pointer - same as (*s).acc_x */
+    /* `->` reads a field through a pointer - same as (*s).acc_x */
+    int32_t           ax = s->acc_x;
     /* No gyroscope means no direct way to sense "the car is turning."
      * The honest substitute: if the left wheel is spinning faster than
      * the right (or vice versa), the car must be turning - the same way
@@ -182,7 +194,7 @@ static void classify(const rc_pl_imu_t *s, int16_t pitch)
     } else if ((diff > 150) || (diff < -150)) {
         /* TODO Buddy 4: 150 (mm/s difference between wheels) is a
          * placeholder guessed threshold, not yet validated against real
-         * turning tests - see TEAM_GUIDE.md TODOs. */
+         * turning tests - see the TODO list in the Buddy 4 guide. */
         next = RC_MOTION_TURNING;
     } else if (ax > 200) {
         next = RC_MOTION_ACCELERATING;
@@ -192,7 +204,10 @@ static void classify(const rc_pl_imu_t *s, int16_t pitch)
         next = RC_MOTION_CRUISING;
     }
 
-    (void)pitch;  /* not used for classification (yet) - silences an unused-parameter warning */
+    /* not used for classification (yet) - silences an unused-parameter warning
+     * not used for classification (yet) - silences an unused-parameter
+     * warning */
+    (void)pitch;
 
     /* Only publish an event when the class actually changed, so
      * subscribers aren't spammed with "still cruising" every single
@@ -316,7 +331,7 @@ static void on_sample(const rc_event_t *evt, void *ctx)
 /* ------------------------------------------------------------------ */
 
 /* Call once at boot. Resets internal state, then subscribes on_sample()
- * to RC_EVT_IMU_SAMPLE on the FAST lane (see TEAM_GUIDE.md section 0.2 on
+ * to RC_EVT_IMU_SAMPLE on the FAST lane (see TEAM_GUIDE.md §1.2 on
  * the event bus/lanes) - fast because hump/impact detection should react
  * without delay, the same reasoning steering does. From this point on,
  * on_sample() runs automatically every time drv_imu_sample() publishes a

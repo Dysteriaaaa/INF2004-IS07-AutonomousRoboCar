@@ -5,7 +5,8 @@
  *  through a scan (like slowly panning a security camera left to right),
  *  collects the (angle, distance) readings, and turns them into a
  *  description of the nearest obstacle plus a decision on what the car
- *  should do about it. See TEAM_GUIDE.md's Buddy 5 section for the full
+ *  should do about it. See docs/buddy5-scan-avoidance/buddy5-scan-avoidance.md
+ * for the full
  *  walkthrough and the sonar/security-camera analogies.
  */
 #include "rc_prelude.h"
@@ -27,7 +28,7 @@
  * car's widest point and add 40 mm. Used by build_plan() to decide
  * whether a side has enough room to swerve into, and by build_profile()
  * indirectly (clearance_left_mm / clearance_right_mm are compared
- * against it). Currently a placeholder value — see TEAM_GUIDE.md Buddy 5
+ * against it). Currently a placeholder value — see the Buddy 5 guide
  * "How to get started" step 4. */
 #define CAR_WIDTH_MM        (150U)
 
@@ -39,13 +40,23 @@
  * repeat) without ever blocking the rest of the car — each state
  * represents "what we're currently waiting on." */
 typedef enum {
-    S_IDLE = 0,       /* nothing happening; ready to start a new scan on request */
-    S_WATCH,          /* slow continuous forward ping while line-following, watching for something getting close */
+    /* nothing happening; ready to start a new scan on request */
+    S_IDLE = 0,
+    /* slow continuous forward ping while line-following, watching for something
+     * getting close */
+    S_WATCH,
     S_COARSE_MOVE,    /* servo is travelling to the next coarse-sweep angle */
-    S_COARSE_PING,    /* servo has arrived; waiting for the ultrasonic ping's echo result at this angle */
-    S_FINE_MOVE,      /* servo is travelling to the next fine-sweep angle (the zoomed-in re-scan around the closest coarse hit) */
-    S_FINE_PING,      /* servo has arrived; waiting for the fine-sweep ping's echo result */
-    S_DONE            /* unused marker state (scan_task returns to S_IDLE or S_WATCH directly instead) */
+    /* servo has arrived; waiting for the ultrasonic ping's echo result at this
+     * angle */
+    S_COARSE_PING,
+    /* servo is travelling to the next fine-sweep angle (the zoomed-in re-scan
+     * around the closest coarse hit) */
+    S_FINE_MOVE,
+    /* servo has arrived; waiting for the fine-sweep ping's echo result */
+    S_FINE_PING,
+    /* unused marker state (scan_task returns to S_IDLE or S_WATCH directly
+     * instead) */
+    S_DONE
 } scan_state_t;
 
 /* One measurement: the servo angle it was taken at, the distance
@@ -62,18 +73,36 @@ typedef struct {
 
 /* All `static` (file-private, see sub_line.c for the fuller explanation)
  * globals holding the scan module's running state. */
-static scan_state_t state;                        /* current state-machine state, see scan_state_t above */
-static point_t      points[RC_SCAN_MAX_POINTS];    /* every (angle, range) reading collected so far this scan — an "array", i.e. a fixed-size row of point_t slots indexed 0..RC_SCAN_MAX_POINTS-1 */
-static uint32_t     n_points;                      /* how many of the slots in `points` are actually filled in right now */
-static int16_t      cur_angle;                     /* angle the servo was most recently commanded to (used to tag the next ultrasonic result) */
-static int16_t      fine_from;                     /* start angle of the fine (zoomed-in) re-scan window, set by find_fine_window() */
-static int16_t      fine_to;                       /* end angle of the fine re-scan window */
-static uint16_t     watch_trigger_mm = 300U;        /* distance threshold for the forward watch mode (currently stored but not yet acted on here — sub_nav.c decides when to escalate to a full scan) */
-static bool         watch_on;                       /* whether continuous forward-watch mode is currently requested */
-static ID           scan_tskid;                     /* kernel task ID for the background scan_task */
-static ID           scan_flgid;                     /* kernel "event flag" object ID used to wake scan_task when something happens (see FLG_* below) */
-static sub_scan_done_cb_t user_cb;                   /* optional callback registered via sub_scan_on_complete() */
-static void        *user_ctx;                        /* free-form context pointer passed back to user_cb unchanged */
+/* current state-machine state, see scan_state_t above */
+static scan_state_t state;
+/* every (angle, range) reading collected so far this scan — an "array", i.e. a
+ * fixed-size row of point_t slots indexed 0..RC_SCAN_MAX_POINTS-1 */
+static point_t      points[RC_SCAN_MAX_POINTS];
+/* how many of the slots in `points` are actually filled in right now */
+static uint32_t     n_points;
+/* angle the servo was most recently commanded to (used to tag the next
+ * ultrasonic result) */
+static int16_t      cur_angle;
+/* start angle of the fine (zoomed-in) re-scan window, set by find_fine_window()
+ * start angle of the fine (zoomed-in) re-scan window, set by
+ * find_fine_window() */
+static int16_t      fine_from;
+/* end angle of the fine re-scan window */
+static int16_t      fine_to;
+/* distance threshold for the forward watch mode (currently stored but not yet
+ * acted on here — sub_nav.c decides when to escalate to a full scan) */
+static uint16_t     watch_trigger_mm = 300U;
+/* whether continuous forward-watch mode is currently requested */
+static bool         watch_on;
+/* kernel task ID for the background scan_task */
+static ID           scan_tskid;
+/* kernel "event flag" object ID used to wake scan_task when something happens
+ * (see FLG_* below) */
+static ID           scan_flgid;
+/* optional callback registered via sub_scan_on_complete() */
+static sub_scan_done_cb_t user_cb;
+/* free-form context pointer passed back to user_cb unchanged */
+static void        *user_ctx;
 
 /* Event flag bits. An "event flag" is a kernel object a task can sleep
  * on (tk_wai_flg) until one of a chosen set of bits gets set by someone
@@ -83,9 +112,12 @@ static void        *user_ctx;                        /* free-form context pointe
  * once without colliding (see the bitwise-shift note in
  * drv_ultrasonic.c's alarm_arm for the same trick used on hardware
  * registers). */
-#define FLG_RESULT      (1U << 0)   /* an ultrasonic ping just produced a result */
-#define FLG_START       (1U << 1)   /* sub_scan_start() was called; begin a scan */
-#define FLG_ABORT       (1U << 2)   /* sub_scan_abort() was called; stop what's running */
+/* an ultrasonic ping just produced a result */
+#define FLG_RESULT      (1U << 0)
+/* sub_scan_start() was called; begin a scan */
+#define FLG_START       (1U << 1)
+/* sub_scan_abort() was called; stop what's running */
+#define FLG_ABORT       (1U << 2)
 
 /* ------------------------------------------------------------------ *
  *  Profiling
@@ -104,12 +136,20 @@ static void        *user_ctx;                        /* free-form context pointe
 static void build_profile(rc_pl_profile_t *p)
 {
     uint32_t i;
-    uint16_t closest = 0xFFFFU;      /* running "smallest distance seen so far"; 0xFFFF (65535) is a deliberately huge starting value nothing real can beat */
-    int16_t  closest_angle = 90;     /* angle of the closest hit so far; defaults to straight ahead */
-    int16_t  first_hit = -1;         /* leftmost/first angle (in sweep order) that counted as "close" (-1 = none yet) */
-    int16_t  last_hit = -1;          /* rightmost/last angle that counted as "close" */
-    uint32_t clear_l = 0U;           /* count of bearings to the left of centre that were free of obstacles */
-    uint32_t clear_r = 0U;           /* count of bearings to the right of centre that were free of obstacles */
+    /* running "smallest distance seen so far"; 0xFFFF (65535) is a deliberately
+     * huge starting value nothing real can beat */
+    uint16_t closest = 0xFFFFU;
+    /* angle of the closest hit so far; defaults to straight ahead */
+    int16_t  closest_angle = 90;
+    /* leftmost/first angle (in sweep order) that counted as "close" (-1 = none
+     * yet) */
+    int16_t  first_hit = -1;
+    /* rightmost/last angle that counted as "close" */
+    int16_t  last_hit = -1;
+    /* count of bearings to the left of centre that were free of obstacles */
+    uint32_t clear_l = 0U;
+    /* count of bearings to the right of centre that were free of obstacles */
+    uint32_t clear_r = 0U;
 
     p->n_points          = 0U;
     p->closest_angle_deg = 0;
@@ -125,7 +165,10 @@ static void build_profile(rc_pl_profile_t *p)
      * a time. */
     for (i = 0U; i < n_points; i++) {
         if (!points[i].valid) {
-            continue;   /* skip readings the ultrasonic driver marked as failed/out-of-range */
+            /* skip readings the ultrasonic driver marked as failed/out-of-range
+             * skip readings the ultrasonic driver marked as failed/out-of-
+             * range */
+            continue;
         }
         if (points[i].range_mm < closest) {
             closest       = points[i].range_mm;
@@ -157,7 +200,9 @@ static void build_profile(rc_pl_profile_t *p)
     }
 
     if (closest == 0xFFFFU) {
-        return;                 /* nothing seen at all — still at the untouched 0xFFFF starting value, so no reading ever beat it */
+        /* nothing seen at all — still at the untouched 0xFFFF starting value,
+         * so no reading ever beat it */
+        return;
     }
 
     p->closest_mm        = closest;
@@ -188,7 +233,7 @@ static void build_profile(rc_pl_profile_t *p)
      *  tan() function — the RP2040 has no hardware floating-point unit
      *  (FPU), so a software tan() would be slow and would also need
      *  float/double math, which this whole codebase avoids (see
-     *  TEAM_GUIDE.md §2). Everything below is done with only integer
+     *  TEAM_GUIDE.md §5). Everything below is done with only integer
      *  multiply/divide.
      *
      *  The arithmetic, step by step:
@@ -343,7 +388,7 @@ static void publish_and_finish(void)
     build_profile(&profile);
     build_plan(&profile, &plan);
 
-    /* Publish on the event bus (see TEAM_GUIDE.md §0.2) so any
+    /* Publish on the event bus (see TEAM_GUIDE.md §1.2) so any
      * subscriber finds out, without this module needing to know who's
      * listening. sub_nav.c (the shared mission state machine) subscribes
      * to RC_EVT_AVOIDANCE_PLAN to know when to leave RC_NAV_AVOIDING and
@@ -379,14 +424,15 @@ static bool step_to(int16_t angle)
      * drv_servo_settle_ms()'s own comments in drv_servo.c for the math. */
     uint32_t settle = drv_servo_settle_ms(drv_servo_get_angle(), angle);
 
-    cur_angle = angle;   /* remember the angle so on_range() can tag the coming result with it */
+    /* remember the angle so on_range() can tag the coming result with it */
+    cur_angle = angle;
     (void)drv_servo_set_angle(angle);
     /* tk_dly_tsk() puts THIS task to sleep for `settle` milliseconds,
      * handing the CPU to other tasks (like the motion PID loop) in the
-     * meantime — this is the "real kernel wait" TEAM_GUIDE.md's Buddy 5
+     * meantime — this is the "real kernel wait" the Buddy 5 guide
      * section and this file's own header comment refer to; it's the
      * opposite of a busy-wait loop that would hog the CPU doing nothing. */
-    (void)tk_dly_tsk((INT)settle);
+    (void)tk_dly_tsk((RELTIM)settle);
 
     return (drv_ultrasonic_ping(angle) == RC_OK);
 }
@@ -430,11 +476,14 @@ static void run_coarse(void)
          a = (int16_t)(a + RC_SCAN_COARSE_STEP)) {
         state = S_COARSE_MOVE;
         if (!step_to(a)) {
-            continue;   /* ping failed to start (e.g. driver busy); skip this angle rather than getting stuck */
+            /* ping failed to start (e.g. driver busy); skip this angle rather
+             * than getting stuck */
+            continue;
         }
         state = S_COARSE_PING;
         if (!wait_result()) {
-            return;   /* aborted or wedged — bail out of the whole coarse sweep */
+            /* aborted or wedged — bail out of the whole coarse sweep */
+            return;
         }
     }
 }
@@ -582,9 +631,10 @@ rc_result_t sub_scan_init(void)
      * flags for the kernel object. tk_cre_flg() creates it and returns
      * an ID (a small integer handle used in every later tk_*_flg call);
      * a return value <= E_OK signals failure. */
-    cflg.exinf  = NULL;
-    cflg.flgatr = TA_TFIFO | TA_WMUL;
-    scan_flgid  = tk_cre_flg(&cflg);
+    cflg.exinf   = NULL;
+    cflg.flgatr  = TA_TFIFO | TA_WMUL;
+    cflg.iflgptn = 0;               /* no bits raised at creation */
+    scan_flgid   = tk_cre_flg(&cflg);
     if (scan_flgid <= E_OK) {
         return RC_ERR_HARDWARE;
     }
@@ -616,7 +666,7 @@ rc_result_t sub_scan_init(void)
  * running, otherwise signals scan_task via FLG_START and returns RC_OK
  * right away; the actual scan work happens on scan_task's own time, and
  * the result arrives later through the callback/events described in
- * publish_and_finish() above. See TEAM_GUIDE.md §0.3 for why this
+ * publish_and_finish() above. See TEAM_GUIDE.md §1.3 for why this
  * "return immediately, callback later" shape is used everywhere in this
  * codebase. */
 rc_result_t sub_scan_start(void)

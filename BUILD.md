@@ -298,8 +298,9 @@ status line.
 
 - No edges at all → the sensor's DO isn't on GP27, or the trim pot is
   off.
-- Edges but no decode for B/C/D → the placeholder table in
-  `sub_barcode.c` (Buddy 3's TODO).
+- Edges but no decode → widths are outside 0.8–200 ms per element (car
+  too fast or too slow over the code, or the trim pot is marginal so
+  some bars are missed). Print `widths[]` from `on_edge()` to see.
 
 ### 5.6 `imu` — Buddy 4: accelerometer, pitch, humps (motors off)
 

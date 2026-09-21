@@ -693,14 +693,13 @@ array's length at compile time as `sizeof(table) / sizeof(table[0])`
 (total size in bytes, divided by one entry's size), so adding rows to
 the table later automatically keeps the count correct without anyone
 needing to update a separate number by hand.
-**Important, flagged as a TODO both here and in the file:** only `'*'`
-(the mandatory start/stop guard character) and `'A'` have their real,
-correct 9-bit patterns in the table right now. `'B'`, `'C'`, and `'D'`
-are explicitly marked `TODO: placeholder` in the source and are simply
-wrong — some even duplicate `'A'`'s pattern by coincidence. Decoding
-will silently fail or produce the wrong character for these three until
-someone looks up the real, standard Code 39 bit patterns and replaces
-them. Do this before testing any barcode that includes B, C, or D.
+The table holds the standard Code 39 patterns for `'*'` (the mandatory
+start/stop guard), the four command letters `'A'`–`'D'`, and `'Z'`
+(printed on the sample sheet in this folder, handy for a first test).
+Every entry has exactly three `1` bits — Code 39 is "3 of 9": two wide
+bars and one wide space per character. To add a letter, look up its bars
+and spaces in any Code 39 table and interleave them bar, space, bar, …
+(the comment above `table[]` walks through `'A'` = `0x109`).
 
 **`symbol_to_cmd()`**
 What it does: a `switch` statement (a clean way to write "check one
@@ -872,11 +871,9 @@ more bar/space width:
   AOUT signal and interpolate a real numeric position. Note the two line
   sensors currently aren't wired to ADC pins — that would need to be
   added to the pin map alongside the code change.
-- **Code 39 lookup table is incomplete — B, C, D are placeholder
-  patterns.** In `sub_barcode.c`'s `table[]`, only `*` and `A` have
-  correct bit patterns; B, C, D are marked `TODO: placeholder` and are
-  simply wrong (some even duplicate `A`'s pattern) — decoding will
-  silently fail or misfire for these until fixed. Look up the real,
-  standard Code 39 encodings and replace the placeholders (9-bit
-  patterns, most-significant-bit first, matching the existing format).
-  **Do this before testing any barcode with B, C, or D symbols.**
+- **Code 39 table covers `*`, A–D and Z only.** If the final track uses
+  other characters, add them to `table[]` in `sub_barcode.c` (9-bit
+  patterns, most-significant-bit first, three bits set — the comment
+  above the table shows how to build one). Check that no new pattern is
+  the mirror image of an existing one, or the `reversed` detection will
+  confuse the two.

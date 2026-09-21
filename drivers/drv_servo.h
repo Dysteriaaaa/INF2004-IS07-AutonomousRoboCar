@@ -16,7 +16,7 @@
 
 /* The physical limits of the servo bracket's swing, in degrees. 0 is
  * fully one side, 180 fully the other, 90 is straight ahead (see
- * TEAM_GUIDE.md Buddy 5 for how "straight ahead" is set mechanically).
+ * the Buddy 5 guide for how "straight ahead" is set mechanically).
  * Every angle passed into this driver gets clamped to this range. */
 #define RC_SERVO_ANGLE_MIN  (0)
 #define RC_SERVO_ANGLE_MAX  (180)

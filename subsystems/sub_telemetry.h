@@ -27,7 +27,8 @@
 #ifndef SUB_TELEMETRY_H
 #define SUB_TELEMETRY_H
 
-#include "rc_types.h"   /* brings in rc_result_t, rc_event_t, rc_nav_cmd_t, etc. */
+/* brings in rc_result_t, rc_event_t, rc_nav_cmd_t, etc. */
+#include "rc_types.h"
 
 /*
  *  A transport. Return RC_OK if the message was handed off. Called from
@@ -46,7 +47,9 @@
  *  in later — see the big comment at the top of this file.
  */
 typedef struct {
-    const char *name;   /* short human-readable label, e.g. "console" or "udp" — used only for logging/diagnostics */
+    /* short human-readable label, e.g. "console" or "udp" — used only for
+     * logging/diagnostics */
+    const char *name;
 
     /* Called once to start the transport (e.g. open a socket, connect to
      * a broker). Must return RC_OK on success. */
@@ -127,4 +130,6 @@ const sub_telemetry_sink_t *sub_telemetry_console_sink(void);
  *      sub_telemetry_mqtt_sink()   over an MQTT client you bring in
  */
 
-#endif /* SUB_TELEMETRY_H -- matches the #ifndef/#define include guard at the top of the file */
+/* SUB_TELEMETRY_H -- matches the #ifndef/#define include guard at the top of
+ * the file */
+#endif

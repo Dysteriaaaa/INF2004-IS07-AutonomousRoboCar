@@ -24,12 +24,19 @@
  * globals are this module's private memory, invisible to (and unable to
  * clash with) globals of the same name in other subsystems. This is how
  * C fakes "private" state without classes. */
-static rc_line_state_t state = RC_LINE_TRACKING;  /* current line-follow mode, see sub_line.h enum */
-static bool     enabled;         /* is steering actually allowed right now? (see sub_line_enable) */
-static int16_t  base_permille = 350;  /* forward speed while tracking, in permille (parts per 1000 of full speed) */
-static uint32_t lost_count;      /* consecutive samples with neither sensor on the line */
-static uint32_t both_count;      /* consecutive samples with both sensors on the line (junction candidate) */
-static int16_t  last_position;   /* most recent position reading, kept so we know which way to arc if the line vanishes */
+/* current line-follow mode, see sub_line.h enum */
+static rc_line_state_t state = RC_LINE_TRACKING;
+/* is steering actually allowed right now? (see sub_line_enable) */
+static bool     enabled;
+/* forward speed while tracking, in permille (parts per 1000 of full speed) */
+static int16_t  base_permille = 350;
+/* consecutive samples with neither sensor on the line */
+static uint32_t lost_count;
+/* consecutive samples with both sensors on the line (junction candidate) */
+static uint32_t both_count;
+/* most recent position reading, kept so we know which way to arc if the line
+ * vanishes */
+static int16_t  last_position;
 
 /* ------------------------------------------------------------------ *
  *  Steering
@@ -63,7 +70,7 @@ static int16_t  last_position;   /* most recent position reading, kept so we kno
  * Why the value is 2: it is a small whole number chosen so the resulting
  * steer command is a gentle correction rather than a violent one, while
  * keeping the arithmetic in plain integers (no floating point — the
- * RP2040 has no hardware FPU, see TEAM_GUIDE.md §2). With position at its
+ * RP2040 has no hardware FPU, see TEAM_GUIDE.md §5). With position at its
  * maximum of 500 and KP=2, steer_from_position() produces a steer value
  * of 500 (out of the same -1000..1000 permille range base_permille uses),
  * i.e. a firm but not maximal correction.
@@ -120,7 +127,7 @@ static void steer_from_position(int16_t position)
  *  Sample callback. Dispatcher task context, fast lane.
  * ------------------------------------------------------------------ */
 
-/* Called automatically (via the event bus, see TEAM_GUIDE.md §0.2) every
+/* Called automatically (via the event bus, see TEAM_GUIDE.md §1.2) every
  * time drv_ir_sample_line() publishes a new reading, roughly every 5ms.
  * This is the whole "brain" of line following: it looks at which
  * sensor(s) currently see the line and decides whether to steer, arc
@@ -229,7 +236,7 @@ static void on_sample(const rc_event_t *evt, void *ctx)
 /* Call once at boot. Registers on_sample() to be called automatically
  * whenever a new RC_EVT_LINE_SAMPLE event is published (i.e. every time
  * drv_ir_sample_line() runs) — this is the publish/subscribe pattern from
- * TEAM_GUIDE.md §0.2. RC_LANE_FAST means this reacts quickly rather than
+ * TEAM_GUIDE.md §1.2. RC_LANE_FAST means this reacts quickly rather than
  * queuing behind slower background work like telemetry. */
 rc_result_t sub_line_init(void)
 {
@@ -274,7 +281,7 @@ rc_line_state_t sub_line_state(void)
  * per thousand of full speed — e.g. 350 means 35.0%). Permille is used
  * everywhere in this codebase instead of a fraction/percent-with-decimals
  * because the RP2040 has no hardware floating point (see TEAM_GUIDE.md
- * §2), so everything is kept as whole numbers. */
+ * §5), so everything is kept as whole numbers. */
 rc_result_t sub_line_set_base(int16_t permille)
 {
     base_permille = permille;

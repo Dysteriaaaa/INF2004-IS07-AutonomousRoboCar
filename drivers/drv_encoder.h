@@ -16,7 +16,7 @@
  *
  *  Timing comes from the free-running microsecond counter inside the
  *  edge ISR (Interrupt Service Routine - code the chip jumps to the
- *  instant the sensor pin changes state, see TEAM_GUIDE.md §0.2), not
+ *  instant the sensor pin changes state, see TEAM_GUIDE.md §1.2), not
  *  from the kernel tick, so speed is usable down to very low RPM without
  *  a long averaging window.
  *

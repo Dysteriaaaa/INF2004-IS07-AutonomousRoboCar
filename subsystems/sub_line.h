@@ -21,10 +21,15 @@
  * to remember what "2" means. `= 0` on the first entry just fixes the
  * starting number; the rest count up automatically (1, 2, 3). */
 typedef enum {
-    RC_LINE_TRACKING = 0,  /* normal case: at least one sensor sees the line, steering actively */
-    RC_LINE_LOST,           /* neither sensor has seen the line for LOST_THRESHOLD samples in a row */
-    RC_LINE_SEARCHING,     /* deliberately off-line, e.g. going round an obstacle */
-    RC_LINE_JUNCTION        /* both sensors on black for JUNCTION_THRESHOLD samples: likely a barcode lead-in */
+    /* normal case: at least one sensor sees the line, steering actively */
+    RC_LINE_TRACKING = 0,
+    /* neither sensor has seen the line for LOST_THRESHOLD samples in a row */
+    RC_LINE_LOST,
+    /* deliberately off-line, e.g. going round an obstacle */
+    RC_LINE_SEARCHING,
+    /* both sensors on black for JUNCTION_THRESHOLD samples: likely a barcode
+     * lead-in */
+    RC_LINE_JUNCTION
 } rc_line_state_t;
 
 /* Call once at boot, before enabling. */

@@ -46,17 +46,27 @@ typedef struct {
 } code39_t;
 
 /*
- *  TODO Buddy 3: this table carries only the four characters the brief
- *  asks for, plus the '*' guard that delimits a Code 39 message. Add the
- *  rest of the alphabet if your track uses it. Patterns are the standard
- *  Code 39 encodings, most significant bit first.
+ *  Standard Code 39 patterns, most significant bit first, for the '*'
+ *  guard that delimits every message, the four command letters the brief
+ *  uses (A..D), and 'Z' because the printed sample sheet in this folder
+ *  carries one. Each 9-bit value is the elements in scan order
+ *  bar,space,bar,space,bar,space,bar,space,bar with 1 = wide, so exactly
+ *  three bits are set in every entry.
+ *
+ *  To add a character, take its bars and spaces from the Code 39 table
+ *  (5 bars, 4 spaces, wide = 1) and interleave them: b1 s1 b2 s2 b3 s3
+ *  b4 s4 b5. For 'A' the bars are 10001 and the spaces 0010, giving
+ *  1 0 0 0 0 1 0 0 1 = 0x109.
+ *
+ *  TODO Buddy 3: add more letters only if your track uses them.
  */
 static const code39_t table[] = {
-    { '*', 0x094U },    /* guard, 0 1001 0100 */
-    { 'A', 0x0A1U },
-    { 'B', 0x0A1U },    /* TODO: placeholder, replace with the real pattern */
-    { 'C', 0x0C1U },    /* TODO: placeholder */
-    { 'D', 0x091U }     /* TODO: placeholder */
+    { '*', 0x094U },    /* bars 00110, spaces 1000 -> 0 1001 0100 */
+    { 'A', 0x109U },    /* bars 10001, spaces 0010 -> 1 0000 1001 */
+    { 'B', 0x049U },    /* bars 01001, spaces 0010 -> 0 0100 1001 */
+    { 'C', 0x148U },    /* bars 11000, spaces 0010 -> 1 0100 1000 */
+    { 'D', 0x019U },    /* bars 00101, spaces 0010 -> 0 0001 1001 */
+    { 'Z', 0x0D0U }     /* bars 01100, spaces 1000 -> 0 1101 0000 */
 };
 
 /* Number of entries in `table`, computed at compile time rather than
@@ -66,12 +76,20 @@ static const code39_t table[] = {
  * — nobody has to remember to update a count by hand. */
 #define TABLE_N     (sizeof(table) / sizeof(table[0]))
 
-static uint32_t widths[WINDOW];        /* sliding buffer of the most recent bar/space widths, in microseconds */
-static uint32_t n_widths;              /* how many entries in `widths` are currently valid */
-static bool     armed;                 /* decoding enabled? (see sub_barcode_arm) */
-static char     last_symbol;           /* most recently decoded character, for telemetry/logging */
-static sub_barcode_cb_t user_cb;       /* a "function pointer" — the caller-supplied function to invoke on a successful decode */
-static void    *user_ctx;              /* opaque context pointer passed back to user_cb untouched, so the caller can tell which car/instance called it */
+/* sliding buffer of the most recent bar/space widths, in microseconds */
+static uint32_t widths[WINDOW];
+/* how many entries in `widths` are currently valid */
+static uint32_t n_widths;
+/* decoding enabled? (see sub_barcode_arm) */
+static bool     armed;
+/* most recently decoded character, for telemetry/logging */
+static char     last_symbol;
+/* a "function pointer" — the caller-supplied function to invoke on a successful
+ * decode */
+static sub_barcode_cb_t user_cb;
+/* opaque context pointer passed back to user_cb untouched, so the caller can
+ * tell which car/instance called it */
+static void    *user_ctx;
 
 /* ------------------------------------------------------------------ *
  *  Map a decoded character to a navigation command. This mapping comes
@@ -134,8 +152,11 @@ static rc_nav_cmd_t symbol_to_cmd(char c)
  */
 static bool classify(uint16_t *pattern_out)
 {
-    uint32_t min_w = 0xFFFFFFFFUL;  /* start at the largest possible value so the first real width always beats it */
-    uint32_t max_w = 0U;            /* start at zero so the first real width always beats it */
+    /* start at the largest possible value so the first real width always beats
+     * it */
+    uint32_t min_w = 0xFFFFFFFFUL;
+    /* start at zero so the first real width always beats it */
+    uint32_t max_w = 0U;
     uint32_t mid;
     uint16_t pattern = 0U;
     uint32_t wide_count = 0U;
@@ -255,7 +276,7 @@ static void shift_window(void)
  *  Edge callback. Dispatcher task context, fast lane.
  * ------------------------------------------------------------------ */
 
-/* Called automatically (event bus callback, see TEAM_GUIDE.md §0.2)
+/* Called automatically (event bus callback, see TEAM_GUIDE.md §1.2)
  * every time drv_ir.c's barcode ISR records one more bar/space edge and
  * publishes its width. This is the "collect widths, then try to decode"
  * loop that drives the whole barcode module. */
@@ -341,7 +362,8 @@ rc_result_t sub_barcode_init(void)
     }
     n_widths    = 0U;
     armed       = false;
-    last_symbol = '\0';   /* '\0' is the "nul" character: C's usual way to say "no value here" */
+    /* '\0' is the "nul" character: C's usual way to say "no value here" */
+    last_symbol = '\0';
 
     if (rc_event_subscribe(RC_EVT_BARCODE_EDGE, RC_LANE_FAST,
                            on_edge, NULL) < 0) {

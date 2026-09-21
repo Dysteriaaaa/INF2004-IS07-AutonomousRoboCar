@@ -109,6 +109,9 @@
 #define RC_PRI_SENSE            (7)
 #define RC_PRI_DISPATCH_SLOW    (9)
 #define RC_PRI_TELEMETRY        (10)
+/* Reserved. sub_nav has no task of its own today - its handlers run in
+ * the FAST dispatcher - but keep the slot so a future nav task lands
+ * between Sense and the SLOW dispatcher. */
 #define RC_PRI_NAV              (8)
 
 #define RC_STACK_SZ             (4096)  /* SMP kernel paths are deep */

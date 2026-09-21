@@ -70,7 +70,8 @@ static void bench_motion(void)
 {
     uint32_t i;
 
-    P("\n[bench] MOTION. Phase 1: open loop, 30%% duty, 4 s. WHEELS OFF THE GROUND.\n");
+    P("\n[bench] MOTION. Phase 1: open loop, 30%% duty, 4 s."
+      " WHEELS OFF THE GROUND.\n");
     P("        Expect both counts rising and both speeds POSITIVE.\n");
     (void)sub_motion_drive(300, 0);
     for (i = 0U; i < 16U; i++) {
@@ -81,7 +82,8 @@ static void bench_motion(void)
     (void)sub_motion_stop(false);
     tk_dly_tsk(1000);
 
-    P("[bench] Phase 2: sub_motion_forward_mm(300) under PID at %u mm/s.\n", 250U);
+    P("[bench] Phase 2: sub_motion_forward_mm(300) under PID at %u mm/s.\n",
+      250U);
     move_done = false;
     (void)sub_motion_forward_mm(300U, motion_cb, NULL);
     while (!move_done) {
@@ -91,7 +93,8 @@ static void bench_motion(void)
     P("[bench] move %s, travelled %u mm (asked 300)\n",
       move_ok ? "completed" : "ABORTED", (unsigned)move_mm);
 
-    P("[bench] Phase 3: motors off. Turn a wheel by hand and watch its count.\n");
+    P("[bench] Phase 3: motors off. Turn a wheel by hand and watch its"
+      " count.\n");
     for (;;) {
         tk_dly_tsk(500);
         print_wheels();
@@ -134,14 +137,17 @@ static void print_line(void)
 
 static void bench_line(bool drive)
 {
-    (void)rc_event_subscribe(RC_EVT_LINE_SAMPLE, RC_LANE_SLOW, on_line_sample, NULL);
+    (void)rc_event_subscribe(RC_EVT_LINE_SAMPLE, RC_LANE_SLOW,
+                             on_line_sample, NULL);
 
     if (drive) {
         P("\n[bench] FOLLOW. The car WILL DRIVE. Put it on the line first.\n");
         (void)sub_line_enable(true);
     } else {
-        P("\n[bench] LINE. Motors off. Slide the sensors over the line by hand.\n");
-        P("        1 = sees black. If it reads 1 over white, flip IR_ACTIVE_HIGH in drv_ir.c.\n");
+        P("\n[bench] LINE. Motors off. Slide the sensors over the line"
+          " by hand.\n");
+        P("        1 = sees black. If it reads 1 over white, flip"
+          " IR_ACTIVE_HIGH in drv_ir.c.\n");
     }
     for (;;) {
         tk_dly_tsk(drive ? 250 : 100);
@@ -171,10 +177,14 @@ static void on_barcode(const rc_event_t *evt, void *ctx)
 
 static void bench_barcode(void)
 {
-    P("\n[bench] BARCODE. Motors off. Armed permanently; pull a barcode under the sensor.\n");
-    P("        Watch the widths: wide bars should be ~2-3x narrow ones at any speed.\n");
-    (void)rc_event_subscribe(RC_EVT_BARCODE_EDGE,    RC_LANE_SLOW, on_bar_edge, NULL);
-    (void)rc_event_subscribe(RC_EVT_BARCODE_DECODED, RC_LANE_SLOW, on_barcode,  NULL);
+    P("\n[bench] BARCODE. Motors off. Armed permanently; pull a barcode"
+      " under the sensor.\n");
+    P("        Watch the widths: wide bars should be ~2-3x narrow ones"
+      " at any speed.\n");
+    (void)rc_event_subscribe(RC_EVT_BARCODE_EDGE, RC_LANE_SLOW,
+                             on_bar_edge, NULL);
+    (void)rc_event_subscribe(RC_EVT_BARCODE_DECODED, RC_LANE_SLOW,
+                             on_barcode, NULL);
     (void)sub_barcode_arm(true);
     for (;;) {
         tk_dly_tsk(5000);
@@ -228,16 +238,22 @@ static const char *class_name(rc_motion_class_t c)
 
 static void bench_imu(void)
 {
-    P("\n[bench] IMU. Level: pitch ~0, z ~1000 mg. Tip the nose up: pitch goes positive.\n");
+    P("\n[bench] IMU. Level: pitch ~0, z ~1000 mg. Tip the nose up: pitch"
+      " goes positive.\n");
     (void)rc_event_subscribe(RC_EVT_IMU_SAMPLE, RC_LANE_SLOW, on_imu,  NULL);
     (void)rc_event_subscribe(RC_EVT_HUMP_BEGIN, RC_LANE_SLOW, on_hump, NULL);
     (void)rc_event_subscribe(RC_EVT_HUMP_END,   RC_LANE_SLOW, on_hump, NULL);
     for (;;) {
         tk_dly_tsk(200);
-        P("  acc x=%d y=%d z=%d mg  pitch=%d.%u deg  class=%s  max peak=%u mm\n",
+        int16_t  pitch = drv_imu_pitch_ddeg();
+        uint16_t mag   = (uint16_t)((pitch < 0) ? -pitch : pitch);
+        /* Print the sign separately: -5 ddeg / 10 is 0 in C, so the "-"
+         * would vanish for small nose-down angles. */
+        P("  acc x=%d y=%d z=%d mg  pitch=%s%u.%u deg  class=%s"
+          "  max peak=%u mm\n",
           (int)acc[0], (int)acc[1], (int)acc[2],
-          (int)(drv_imu_pitch_ddeg() / 10),
-          (unsigned)((drv_imu_pitch_ddeg() < 0 ? -drv_imu_pitch_ddeg() : drv_imu_pitch_ddeg()) % 10),
+          (pitch < 0) ? "-" : "",
+          (unsigned)(mag / 10U), (unsigned)(mag % 10U),
           class_name(sub_terrain_motion_class()),
           (unsigned)sub_terrain_max_peak_mm());
     }
@@ -251,7 +267,8 @@ static void on_ultra(const rc_event_t *evt, void *ctx)
 {
     (void)ctx;
     if (evt->u.ultra.valid) {
-        P("  %d deg: %u mm\n", (int)evt->u.ultra.angle_deg, (unsigned)evt->u.ultra.range_mm);
+        P("  %d deg: %u mm\n", (int)evt->u.ultra.angle_deg,
+          (unsigned)evt->u.ultra.range_mm);
     } else {
         P("  %d deg: no echo\n", (int)evt->u.ultra.angle_deg);
     }
@@ -259,7 +276,8 @@ static void on_ultra(const rc_event_t *evt, void *ctx)
 
 static void bench_ultra(void)
 {
-    P("\n[bench] ULTRA. Servo parked at 90, one ping every 100 ms. Check against a tape at 100/300/1000 mm.\n");
+    P("\n[bench] ULTRA. Servo parked at 90, one ping every 100 ms."
+      " Check against a tape at 100/300/1000 mm.\n");
     (void)rc_event_subscribe(RC_EVT_ULTRA_RESULT, RC_LANE_SLOW, on_ultra, NULL);
     (void)drv_servo_set_angle(90);
     tk_dly_tsk(500);
@@ -284,25 +302,31 @@ static const char *cmd_name(rc_nav_cmd_t c)
     }
 }
 
-static void on_scan_done(const rc_pl_profile_t *profile, const rc_pl_plan_t *plan, void *ctx)
+static void on_scan_done(const rc_pl_profile_t *profile,
+                         const rc_pl_plan_t *plan, void *ctx)
 {
     (void)ctx;
-    P("[bench] profile: %u points, closest %u mm at %d deg, width %u mm, clearance L=%u R=%u\n",
+    P("[bench] profile: %u points, closest %u mm at %d deg, width %u mm,"
+      " clearance L=%u R=%u\n",
       (unsigned)profile->n_points, (unsigned)profile->closest_mm,
       (int)profile->closest_angle_deg, (unsigned)profile->width_mm,
-      (unsigned)profile->clearance_left_mm, (unsigned)profile->clearance_right_mm);
+      (unsigned)profile->clearance_left_mm,
+      (unsigned)profile->clearance_right_mm);
     P("[bench] plan: %s lateral=%u mm forward=%u mm\n",
-      cmd_name(plan->action), (unsigned)plan->lateral_mm, (unsigned)plan->forward_mm);
+      cmd_name(plan->action), (unsigned)plan->lateral_mm,
+      (unsigned)plan->forward_mm);
 }
 
 static void bench_scan(void)
 {
-    P("\n[bench] SCAN. Coarse 30..150 then fine sweep, repeated every few seconds. Motors off.\n");
+    P("\n[bench] SCAN. Coarse 30..150 then fine sweep, repeated every few"
+      " seconds. Motors off.\n");
     (void)rc_event_subscribe(RC_EVT_ULTRA_RESULT, RC_LANE_SLOW, on_ultra, NULL);
     (void)sub_scan_on_complete(on_scan_done, NULL);
     for (;;) {
         P("[bench] --- scan start\n");
         (void)sub_scan_start();
+        tk_dly_tsk(100);            /* let the scan task pick the flag up */
         while (sub_scan_busy()) {
             tk_dly_tsk(50);
         }
@@ -316,7 +340,8 @@ static void bench_scan(void)
 
 static void bench_telemetry(void)
 {
-    P("\n[bench] TELEMETRY. All sensors live, motors off. Watch the [telem] lines at 4 Hz.\n");
+    P("\n[bench] TELEMETRY. All sensors live, motors off. Watch the [telem]"
+      " lines at 4 Hz.\n");
     P("        Both dropped counts must stay at 0.\n");
     for (;;) {
         tk_dly_tsk(5000);

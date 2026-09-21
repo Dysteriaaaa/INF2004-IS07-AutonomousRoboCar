@@ -8,7 +8,7 @@
  *  This layer is pure output. It has no idea how fast the car is actually
  *  going. Closing that loop is sub_motion's job.
  *
- *  Beginner notes (see TEAM_GUIDE.md §0 for the bigger picture):
+ *  Beginner notes (see TEAM_GUIDE.md §1 for the bigger picture):
  *  - "PWM" = Pulse Width Modulation. The pin is flipped on/off thousands
  *    of times a second; the *fraction* of time it's on ("duty cycle")
  *    controls how much average power the motor sees. 100% duty = full
@@ -30,7 +30,8 @@
  * self-explanatory. */
 typedef enum {
     RC_MOTOR_COAST = 0,  /* power cut, wheel free-spins down on its own */
-    RC_MOTOR_BRAKE        /* both pins driven high, shorts the motor, stops fast */
+    /* both pins driven high, shorts the motor, stops fast */
+    RC_MOTOR_BRAKE
 } rc_motor_stop_t;
 
 /* Call once at boot. Configures PWM on both motors' pin pairs and zeroes

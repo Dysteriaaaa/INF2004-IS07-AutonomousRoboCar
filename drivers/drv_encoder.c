@@ -110,7 +110,7 @@ static void encoder_isr(uint32_t pin, bool level, uint32_t t_us, void *ctx)
      *  pin all share IO_IRQ_BANK0 (one shared interrupt line for a whole
      *  bank of GPIO pins). Time spent here is time a barcode edge
      *  timestamp is being delayed, and bar width is the data - see
-     *  TEAM_GUIDE.md §0.2's "golden rule" for interrupt code.
+     *  TEAM_GUIDE.md §1.2's "golden rule" for interrupt code.
      */
     delta = t_us - e->last_us;          /* wrap safe: unsigned subtraction
                                           * still gives the right answer
@@ -263,7 +263,7 @@ uint32_t drv_encoder_period_us(rc_side_t side)
 /* Converts "microseconds between clicks" into "millimetres per second."
  * This is the number sub_motion.c's PID loop compares against the target
  * speed every control cycle - it's the "actual speed" half of the
- * cruise-control analogy in TEAM_GUIDE.md. */
+ * cruise-control analogy in the Buddy 2 guide. */
 int32_t drv_encoder_speed_mm_s(rc_side_t side)
 {
     uint32_t period = drv_encoder_period_us(side);

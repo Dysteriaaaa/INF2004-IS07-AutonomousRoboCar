@@ -6,7 +6,7 @@
  *  implementation of those blocks until the move finishes, and that
  *  cannot work here: the line follower needs to keep steering while the
  *  car drives, and the scanner needs to keep pinging. See TEAM_GUIDE.md
- *  §0.3 ("Non-blocking - the one rule that shapes everything") for why
+ *  §1.3 ("Non-blocking - the one rule that shapes everything") for why
  *  this pattern is used everywhere in this project, not just here.
  *
  *  So every command here is a request that returns immediately and
@@ -25,8 +25,8 @@
  *  on encoder speed, and a separate straight-line correction term keeps
  *  the two wheels matched. "PID" = Proportional-Integral-Derivative
  *  control, the same idea as a car's cruise control - see sub_motion.c
- *  for the full explanation next to the actual math, and TEAM_GUIDE.md's
- *  Buddy 2 section for the plain-English overview.
+ *  for the full explanation next to the actual math, and the Buddy 2 guide
+ *  (docs/buddy2-motion/) for the plain-English overview.
  */
 #ifndef SUB_MOTION_H
 #define SUB_MOTION_H
@@ -50,7 +50,7 @@
  *                  "which object/struct is this callback for" without
  *                  global variables.
  * Runs in dispatcher task context (not inside an interrupt). Must not
- * block - see TEAM_GUIDE.md §0.2/§0.3. */
+ * block - see TEAM_GUIDE.md §1.2/§1.3. */
 typedef void (*sub_motion_done_cb_t)(uint32_t move_id,
                                      bool completed,
                                      uint32_t travelled_mm,
@@ -69,17 +69,18 @@ rc_result_t sub_motion_set_speed(uint16_t mm_s);
  *  Queued moves. Each returns a move id (used to match it up with the
  *  completion callback/event later), or 0 if the request was rejected.
  *  Passing cb = NULL is fine if you only want the RC_EVT_MOTION_DONE
- *  event (published on the event bus - see TEAM_GUIDE.md §0.2) instead
+ *  event (published on the event bus - see TEAM_GUIDE.md §1.2) instead
  *  of a direct callback.
  */
 uint32_t sub_motion_forward_mm(uint32_t mm, sub_motion_done_cb_t cb, void *ctx);
-uint32_t sub_motion_backward_mm(uint32_t mm, sub_motion_done_cb_t cb, void *ctx);
+uint32_t sub_motion_backward_mm(uint32_t mm, sub_motion_done_cb_t cb,
+                                void *ctx);
 uint32_t sub_motion_turn_deg(int16_t deg, sub_motion_done_cb_t cb, void *ctx);
 
 /*
  *  Continuous mode, for the line follower. Sets a base speed and a
  *  steering bias in permille (parts per thousand - this codebase's
- *  integer-only stand-in for a percentage, see TEAM_GUIDE.md §2); no
+ *  integer-only stand-in for a percentage, see TEAM_GUIDE.md §5); no
  *  distance target, no completion callback - it just keeps driving until
  *  told otherwise. This is the mode the car spends most of its run in.
  */

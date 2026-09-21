@@ -3,7 +3,8 @@
  *
  *  Aims the ultrasonic sensor left/right, the same way you'd swivel a
  *  security camera to look around instead of only straight ahead. See
- *  TEAM_GUIDE.md's Buddy 5 section for the security-camera analogy and
+ *  docs/buddy5-scan-avoidance/buddy5-scan-avoidance.md for the security-camera
+ * analogy and
  *  the full walkthrough of how this fits into a scan.
  */
 #include "rc_prelude.h"
@@ -37,7 +38,7 @@
  * US_PER_DEG: microseconds of travel time estimated per degree of
  * commanded movement (used, divided by 1000, as milliseconds-per-degree
  * in drv_servo_settle_ms below). This is a rough guess for a generic 9g
- * servo — TEAM_GUIDE.md Buddy 5 "How to get started" step 3 asks you to
+ * servo — the Buddy 5 guide, "How to get started" step 3 asks you to
  * time your actual servo and correct this constant, since it directly
  * controls how long every scan step waits before trusting a reading.
  * SETTLE_FIXED_MS: a flat number of milliseconds added on top of travel
@@ -56,7 +57,8 @@ static int16_t last_angle = 90;
 
 /* Sets up 50 Hz PWM on the servo's signal pin and centers the sensor at
  * 90 degrees (straight ahead). Call once at boot, after the bracket has
- * been mechanically aligned per TEAM_GUIDE.md Buddy 5 step 2. */
+ * been mechanically aligned per the Buddy 5 guide, "How to get started"
+ * step 2. */
 rc_result_t drv_servo_init(void)
 {
     rc_result_t res = rc_pwm_init_pin(RC_PIN_SERVO_SCAN, SERVO_HZ);
@@ -89,8 +91,8 @@ rc_result_t drv_servo_set_angle(int16_t deg)
     /* Linear interpolation: 0 deg -> PULSE_MIN_US, 180 deg -> PULSE_MAX_US,
      * everything else proportional in between. All integer arithmetic
      * (multiply before divide, to keep as much precision as possible
-     * without ever using a fractional/float type — see TEAM_GUIDE.md §2,
-     * "No floating point anywhere"). */
+     * without ever using a fractional/float type — see TEAM_GUIDE.md §5,
+     * \"No floating point anywhere\"). */
     pulse_us = PULSE_MIN_US
              + (((PULSE_MAX_US - PULSE_MIN_US) * (uint32_t)deg) / SWEEP_DEG);
 

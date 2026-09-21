@@ -29,7 +29,8 @@ typedef enum {
     RC_EDGE_BOTH = 0x3
 } rc_edge_t;
 
-typedef void (*rc_gpio_isr_t)(uint32_t pin, bool level, uint32_t t_us, void *ctx);
+typedef void (*rc_gpio_isr_t)(uint32_t pin, bool level, uint32_t t_us,
+                              void *ctx);
 
 /*
  *  Claim IO_IRQ_BANK0 and clear the table. Call once, before any driver

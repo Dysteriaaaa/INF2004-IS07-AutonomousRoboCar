@@ -30,17 +30,26 @@
  * the normal `char *`. */
 #define ADC_DEVNAME         ((UB *)"adca")
 
-static ID       adc_dd = -1;              /* ADC device descriptor once opened; -1/invalid until drv_ir_init() succeeds */
-static drv_ir_edge_cb_t bar_cb;           /* optional extra callback for raw barcode edges, set via drv_ir_on_barcode_edge() */
-static void            *bar_ctx;          /* context pointer passed back to bar_cb untouched */
+/* ADC device descriptor once opened; -1/invalid until drv_ir_init() succeeds */
+static ID       adc_dd = -1;
+/* optional extra callback for raw barcode edges, set via
+ * drv_ir_on_barcode_edge() */
+static drv_ir_edge_cb_t bar_cb;
+/* context pointer passed back to bar_cb untouched */
+static void            *bar_ctx;
 /* `volatile` tells the compiler "this variable can change at any moment,
  * outside of normal program flow (here: from inside an interrupt), so
  * never cache it in a register or optimize away a re-read of it." Every
  * variable touched by both the ISR and normal task code in this file is
  * marked volatile for that reason. */
-static volatile uint32_t bar_last_us;     /* timestamp (microseconds) of the previous barcode edge, to compute the next width */
-static volatile bool     bar_enabled;     /* is the barcode ISR currently allowed to record edges? */
-static int32_t           defer_h = -1;    /* handle for the "bottom half" deferred-work registration, see rc_defer_register() */
+/* timestamp (microseconds) of the previous barcode edge, to compute the next
+ * width */
+static volatile uint32_t bar_last_us;
+/* is the barcode ISR currently allowed to record edges? */
+static volatile bool     bar_enabled;
+/* handle for the "bottom half" deferred-work registration, see
+ * rc_defer_register() */
+static int32_t           defer_h = -1;
 
 /*
  *  Edge ring. Single producer (the ISR), single consumer (the bottom
@@ -68,14 +77,20 @@ static int32_t           defer_h = -1;    /* handle for the "bottom half" deferr
 #define BAR_RING_MASK   (BAR_RING_SZ - 1U)
 
 typedef struct {
-    uint32_t width_us;   /* how long (microseconds) the level held before this edge */
-    bool     level;      /* the new level after this edge: true = just went high, false = just went low */
+    /* how long (microseconds) the level held before this edge */
+    uint32_t width_us;
+    /* the new level after this edge: true = just went high, false = just went
+     * low */
+    bool     level;
 } bar_edge_rec_t;
 
-static bar_edge_rec_t    bar_ring[BAR_RING_SZ];  /* the ring buffer's backing storage */
+/* the ring buffer's backing storage */
+static bar_edge_rec_t    bar_ring[BAR_RING_SZ];
 static volatile uint32_t bar_head;   /* next slot the ISR will write to */
-static volatile uint32_t bar_tail;   /* next slot the bottom half will read from */
-static volatile uint32_t bar_overrun; /* count of edges dropped because the ring filled up before being drained */
+/* next slot the bottom half will read from */
+static volatile uint32_t bar_tail;
+/* count of edges dropped because the ring filled up before being drained */
+static volatile uint32_t bar_overrun;
 
 /* ------------------------------------------------------------------ *
  *  Barcode edge ISR
@@ -84,7 +99,7 @@ static volatile uint32_t bar_overrun; /* count of edges dropped because the ring
 /* This is an ISR (Interrupt Service Routine): a function the RP2040's
  * hardware jumps to automatically, pausing whatever else was running,
  * the instant the barcode pin's voltage changes. Because it interrupts
- * everything else, the golden rule (see TEAM_GUIDE.md §0.2) is that it
+ * everything else, the golden rule (see TEAM_GUIDE.md §1.2) is that it
  * must do the absolute minimum — record a timestamp, stash the data,
  * signal that there's work to do — and never loop, publish an event
  * itself, or do anything slow like division. `pin`, `level` (the pin's

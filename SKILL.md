@@ -307,7 +307,7 @@ point it matters explaining what to do and why the obvious approach fails.
 | Where | What |
 |---|---|
 | `sub_motion.c` | PID gains are placeholders. Encoder-based turning is a stub. Reverse distance needs sign handling |
-| `sub_barcode.c` | Code 39 patterns for **B, C and D are placeholders**. Only `*` and `A` are real. Fill from a Code 39 reference before testing decoding |
+| `sub_barcode.c` | Table carries the standard Code 39 patterns for `*`, A-D and Z (three bits set each, no entry is another's mirror). Add letters only if the track needs them |
 | `sub_line.c` | Proportional-only on a four-state position estimate. Will weave. Add a derivative term, then move to analogue interpolation |
 | `sub_terrain.c` | Encoder cross-check on hump height; turn classification |
 | `sub_scan.c` | Side memory across obstacles; the "reverse and reattempt" case |
@@ -390,7 +390,22 @@ Console is the Pico's own USB port; no USB-serial adapter exists on this car.
 Barr-C. Fixed-width types; kernel types (`UW`, `ID`, `ER`) only at the kernel
 API boundary. Braces on every `if`/`else`. Every `if`/`else if` chain ends in
 an `else`; every `switch` has a `default`. No magic numbers. File-scope objects
-are `static`. No floating point.
+are `static`. No floating point. **80 columns**: `build/build.sh` prints every
+over-long line in `core/ drivers/ subsystems/ app/` as a warning; keep it at
+zero (a long trailing comment goes on its own lines above the code).
+
+Strict-warning audit (done once, keep it clean): run make directly from
+`external/mtk3smp-rp2040/build_make` with
+`RC_CFLAGS="-DRC_BENCH=RC_BENCH_NONE -Wall -Wextra -Wshadow -Wconversion
+-Wundef -Wcast-qual -Wdouble-promotion"` - `build.sh` overwrites `RC_CFLAGS`,
+so it cannot be passed through that script. Our objects compile with zero
+warnings under those flags; the remaining noise is the port's own headers
+(`TK_SUPPORT_SERCD`, `CNF_SMP` undefined, K&R prototypes in `typedef.h`).
+
+Things fixed in the audit that are easy to reintroduce: `rc_pwm_set_pulse_us`
+scales per millisecond (per-microsecond integer ticks truncate 3.205 to 3 and
+shorten every servo pulse by 6 %); every `T_CFLG` needs `iflgptn = 0`; PID
+output is clamped in 32-bit before the `int16_t` cast.
 
 ## When helping on this project
 

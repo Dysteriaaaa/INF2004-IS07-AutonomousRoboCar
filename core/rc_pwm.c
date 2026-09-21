@@ -34,7 +34,8 @@ rc_result_t rc_pwm_init_pin(uint32_t pin, uint32_t freq_hz)
     /* Pick the smallest integer divider that brings wrap under 16 bits,
      * which keeps the most duty resolution available. */
     div_int = 1U;
-    while (((SYS_CLK_HZ / (div_int * freq_hz)) > WRAP_MAX) && (div_int < 255U)) {
+    while (((SYS_CLK_HZ / (div_int * freq_hz)) > WRAP_MAX)
+           && (div_int < 255U)) {
         div_int++;
     }
 
@@ -84,7 +85,7 @@ rc_result_t rc_pwm_set_duty(uint32_t pin, uint16_t permille)
 rc_result_t rc_pwm_set_pulse_us(uint32_t pin, uint32_t pulse_us)
 {
     uint32_t slice;
-    uint32_t ticks_per_us;
+    uint32_t ticks_per_ms;
     uint32_t cc;
 
     if (pin >= 30U) {
@@ -96,11 +97,15 @@ rc_result_t rc_pwm_set_pulse_us(uint32_t pin, uint32_t pulse_us)
         return RC_ERR_STATE;
     }
 
-    /* Counter ticks in one microsecond after the divider. At 125 MHz with
-     * div 38 this is 3, so a servo gets roughly 3 counts per us, which is
-     * about 0.06 degrees of resolution. Good enough. */
-    ticks_per_us = (SYS_CLK_HZ / slice_div[slice]) / 1000000UL;
-    cc = pulse_us * ticks_per_us;
+    /* Counter ticks per millisecond after the divider, then scale the
+     * pulse. At 125 MHz with the divider of 39 that a 50 Hz servo frame
+     * needs, the counter runs at 3.205 MHz: 3205 ticks per ms. Working
+     * per millisecond keeps that fraction (a per-microsecond figure would
+     * truncate to 3 and make every pulse 6 % short, so "90 degrees"
+     * would land nearer 80). pulse_us is at most a few thousand, so the
+     * product stays well inside 32 bits. */
+    ticks_per_ms = (SYS_CLK_HZ / slice_div[slice]) / 1000UL;
+    cc = (pulse_us * ticks_per_ms) / 1000UL;
 
     if (cc > slice_wrap[slice]) {
         cc = slice_wrap[slice];

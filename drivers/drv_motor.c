@@ -135,10 +135,9 @@ rc_result_t drv_motor_stop(rc_motor_stop_t mode)
 }
 
 /* Report the last duty value this wheel was commanded to. Doesn't measure
- * anything live - it's just "what did we last tell it to do." Other code
- * (drv_encoder.c) uses the sign of this to work out which way the wheel
- * should currently be spinning, since the encoder hardware can't sense
- * direction on its own. */
+ * anything live - it's just "what did we last tell it to do." Telemetry
+ * reports it; direction of travel is measured by the two-channel encoder
+ * (drv_encoder_dir), not inferred from this. */
 int16_t drv_motor_get(rc_side_t side)
 {
     return (side > RC_SIDE_RIGHT) ? 0 : motors[side].last;

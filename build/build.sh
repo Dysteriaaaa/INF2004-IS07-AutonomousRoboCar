@@ -129,6 +129,14 @@ echo "== toolchain : $(arm-none-eabi-gcc --version | head -1)"
 echo "== pico sdk  : $PICO_SDK_PATH"
 echo "== profile   : SMP=$SMP CONSOLE=usb_cdc bench=$BENCH"
 
+# Barr-C style check (NFR9): flag any source line over 80 columns. A warning,
+# not an error, so nobody is blocked - but fix them before you commit.
+long_lines="$(LC_ALL=C.UTF-8 awk 'length($0) > 80 { print FILENAME ":" FNR }'     "$ROOT"/core/*.[ch] "$ROOT"/drivers/*.[ch]     "$ROOT"/subsystems/*.[ch] "$ROOT"/app/*.[ch])"
+if [ -n "$long_lines" ]; then
+    echo "== WARNING: lines over 80 columns (Barr-C):"
+    echo "$long_lines" | sed 's/^/     /'
+fi
+
 # The bench selection is a -D on our own objects only. The port's stale-object
 # guard keys on its profile, not on RC_BENCH, so drop app/ objects ourselves
 # (two small files) to guarantee the right bench is linked.

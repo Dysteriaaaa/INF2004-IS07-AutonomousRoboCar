@@ -356,9 +356,8 @@ the brief means by "robust operation at varying speeds".
 ADC driver, opened as `"adca"`, channel number passed as the read start
 position).
 
-**Known gap:** the Code 39 pattern table in `sub_barcode.c` has real values
-for `*` and `A` only. `B`, `C` and `D` are marked `TODO` placeholders. Fill
-them from a Code 39 reference before you test decoding.
+The Code 39 pattern table in `sub_barcode.c` carries `*`, `A`–`D` and `Z`.
+Add other characters from a Code 39 reference if the track uses them.
 
 ---
 

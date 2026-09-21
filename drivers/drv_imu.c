@@ -15,14 +15,20 @@
  * like a row in a tiny built-in spreadsheet. `#define` gives each slot
  * number a readable name so the code below never has bare hex constants
  * whose meaning you'd have to look up in a datasheet every time. */
-#define A_CTRL_REG1     (0x20U)  /* accelerometer: turns it on, sets sample rate */
-#define A_CTRL_REG4     (0x23U)  /* accelerometer: sets measurement range/resolution */
-#define A_OUT_X_L       (0x28U)  /* accelerometer: first of 6 output registers (X low byte) */
+/* accelerometer: turns it on, sets sample rate */
+#define A_CTRL_REG1     (0x20U)
+/* accelerometer: sets measurement range/resolution */
+#define A_CTRL_REG4     (0x23U)
+/* accelerometer: first of 6 output registers (X low byte) */
+#define A_OUT_X_L       (0x28U)
 
 #define M_CRA_REG       (0x00U)  /* magnetometer: sample-rate config register */
-#define M_CRB_REG       (0x01U)  /* magnetometer: gain/sensitivity config register */
-#define M_MR_REG        (0x02U)  /* magnetometer: mode register (continuous vs sleep) */
-#define M_OUT_X_H       (0x03U)  /* magnetometer: first of 6 output registers (X high byte) */
+/* magnetometer: gain/sensitivity config register */
+#define M_CRB_REG       (0x01U)
+/* magnetometer: mode register (continuous vs sleep) */
+#define M_MR_REG        (0x02U)
+/* magnetometer: first of 6 output registers (X high byte) */
+#define M_OUT_X_H       (0x03U)
 
 /* Value written to A_CTRL_REG1 to configure the accelerometer:
  * 100 Hz sample rate, all three axes enabled, normal power mode. This is
@@ -60,19 +66,28 @@
  * multi-byte read would return garbage after the first two bytes. */
 #define AUTO_INC        (0x80U)
 
-#define I2C_DEVNAME     ((UB *)"iica")   /* unit 0 (GP4/GP5 after the HARDWARE.md patch) - the RTOS's name for the I2C bus device */
+/* unit 0 (GP4/GP5 after the HARDWARE.md patch) - the RTOS's name for the I2C
+ * bus device */
+#define I2C_DEVNAME     ((UB *)"iica")
 
 /* `static` here means these variables are private to this file - no
  * other .c file can see or touch them directly, only through the
  * functions below. That's how this driver keeps its internal state
  * (calibration bias, last reading) hidden from the rest of the codebase. */
-static ID      i2c_dd = -1;      /* device handle for the opened I2C bus, or -1 if not open */
-static int16_t bias_x;           /* calibration offset to subtract from raw accel X (mg) */
-static int16_t bias_y;           /* calibration offset to subtract from raw accel Y (mg) */
-static int16_t bias_z;           /* calibration offset to subtract from raw accel Z (mg), see note below */
-static int16_t last_ax;          /* most recent bias-corrected accel X reading (mg), used by pitch calc */
-static int16_t last_ay;          /* most recent bias-corrected accel Y reading (mg) */
-static int16_t last_az;          /* most recent bias-corrected accel Z reading (mg) */
+/* device handle for the opened I2C bus, or -1 if not open */
+static ID      i2c_dd = -1;
+/* calibration offset to subtract from raw accel X (mg) */
+static int16_t bias_x;
+/* calibration offset to subtract from raw accel Y (mg) */
+static int16_t bias_y;
+/* calibration offset to subtract from raw accel Z (mg), see note below */
+static int16_t bias_z;
+/* most recent bias-corrected accel X reading (mg), used by pitch calc */
+static int16_t last_ax;
+/* most recent bias-corrected accel Y reading (mg) */
+static int16_t last_ay;
+/* most recent bias-corrected accel Z reading (mg) */
+static int16_t last_az;
 
 /* ------------------------------------------------------------------ *
  *  I2C helpers
@@ -171,7 +186,8 @@ rc_result_t drv_imu_init(void)
 
 rc_result_t drv_imu_read_accel(int16_t *x, int16_t *y, int16_t *z)
 {
-    UB b[6];  /* raw bytes from the chip: [X low, X high, Y low, Y high, Z low, Z high] */
+    /* raw bytes from the chip: [X low, X high, Y low, Y high, Z low, Z high] */
+    UB b[6];
 
     /* Refuse to write through a NULL (invalid/empty) pointer - if the
      * caller passed no address to write into, we'd crash the moment we
@@ -220,7 +236,8 @@ rc_result_t drv_imu_read_accel(int16_t *x, int16_t *y, int16_t *z)
 
 rc_result_t drv_imu_read_mag(int16_t *x, int16_t *y, int16_t *z)
 {
-    UB b[6];  /* raw bytes from the chip - note the different order, see below */
+    /* raw bytes from the chip - note the different order, see below */
+    UB b[6];
 
     if ((x == NULL) || (y == NULL) || (z == NULL)) {
         return RC_ERR_PARAM;
@@ -349,7 +366,7 @@ rc_result_t drv_imu_calibrate(uint16_t n)
 
 /* Turns the last accelerometer X reading into a tilt angle, without any
  * trigonometry functions and without a gyroscope. See sub_terrain.c and
- * TEAM_GUIDE.md for the full "why this works" explanation - short
+ * the Buddy 4 guide for the full "why this works" explanation - short
  * version: gravity always pulls straight down, so when the car is level
  * all of that pull shows up on the Z axis; tilt the car nose-up and part
  * of that same pull rotates onto the X axis instead. More X reading

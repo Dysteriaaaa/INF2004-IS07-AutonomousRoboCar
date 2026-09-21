@@ -5,8 +5,8 @@
  *  echolocation or a submarine's sonar: send out a short pulse, measure
  *  how long the echo takes to bounce back, and that time tells you the
  *  distance (sound travels at a known, roughly constant speed through
- *  air). See the big comment in drv_ultrasonic.h and TEAM_GUIDE.md's
- *  Buddy 5 section for the full 5-step interrupt relay this file
+ *  air). See the big comment in drv_ultrasonic.h and the Buddy 5 guide
+ *  (docs/buddy5-scan-avoidance/) for the full 5-step interrupt relay this file
  *  implements instead of a simple busy-wait.
  */
 #include "rc_prelude.h"
@@ -27,7 +27,8 @@
  * rest of the car's code. */
 #define INTNO_TIMER_1       (1U)
 #define INTNO_TIMER_2       (2U)
-#define INTPRI_TIMER        (2)   /* interrupt priority level given to both timer alarms */
+/* interrupt priority level given to both timer alarms */
+#define INTPRI_TIMER        (2)
 
 /* Which of the RP2040's hardware alarm "slots" (0-3) each timer use is
  * assigned to. Alarm 1 times the 12us TRIG pulse; alarm 2 is the
@@ -68,8 +69,12 @@
 typedef enum {
     ST_IDLE = 0,      /* no measurement running; ready for a new ping() */
     ST_TRIG,          /* TRIG pin is currently held high (the 12us pulse) */
-    ST_WAIT_RISE,     /* TRIG has been dropped; waiting for ECHO to go high (sound sent, waiting for it to start bouncing back) */
-    ST_WAIT_FALL      /* ECHO is high; waiting for it to drop (echo received, now measuring how long it stayed high) */
+    /* TRIG has been dropped; waiting for ECHO to go high (sound sent, waiting
+     * for it to start bouncing back) */
+    ST_WAIT_RISE,
+    /* ECHO is high; waiting for it to drop (echo received, now measuring how
+     * long it stayed high) */
+    ST_WAIT_FALL
 } ultra_state_t;
 
 /* `volatile` tells the compiler "this variable can change at any time,
@@ -80,19 +85,29 @@ typedef enum {
  * assume a value never changes between two reads and produce buggy
  * optimized code. */
 static volatile ultra_state_t state = ST_IDLE;
-static volatile uint32_t      t_rise;     /* microsecond timestamp when ECHO last went high, set in echo_isr */
-static volatile int16_t       tag_angle;  /* servo angle this ping was taken at, so the result can be matched back to a bearing */
-static drv_ultra_cb_t         user_cb;    /* optional direct callback registered via drv_ultrasonic_on_result() */
-static void                  *user_ctx;   /* the free-form context pointer handed back unchanged to user_cb */
-static int32_t                defer_h = -1;  /* handle for the registered "bottom half" deferred-work function (see rc_defer_register below) */
+/* microsecond timestamp when ECHO last went high, set in echo_isr */
+static volatile uint32_t      t_rise;
+/* servo angle this ping was taken at, so the result can be matched back to a
+ * bearing */
+static volatile int16_t       tag_angle;
+/* optional direct callback registered via drv_ultrasonic_on_result() */
+static drv_ultra_cb_t         user_cb;
+/* the free-form context pointer handed back unchanged to user_cb */
+static void                  *user_ctx;
+/* handle for the registered "bottom half" deferred-work function (see
+ * rc_defer_register below) */
+static int32_t                defer_h = -1;
 
 /* Set by an ISR, consumed by the bottom half (see finish_i / ultra_drain
  * below for what "bottom half" means here — the short version: the ISR
  * can't safely do division or publish events, so it just drops these
  * three values and asks a normal task to pick them up). */
-static volatile uint32_t      result_width_us;  /* how long ECHO stayed high, in microseconds — the raw measurement */
-static volatile bool          result_valid;     /* true if a real echo was measured; false if we timed out instead */
-static volatile bool          result_ready;     /* true once finish_i() has something for ultra_drain() to process */
+/* how long ECHO stayed high, in microseconds — the raw measurement */
+static volatile uint32_t      result_width_us;
+/* true if a real echo was measured; false if we timed out instead */
+static volatile bool          result_valid;
+/* true once finish_i() has something for ultra_drain() to process */
+static volatile bool          result_ready;
 
 /* ------------------------------------------------------------------ *
  *  TIMER alarm helpers
@@ -108,7 +123,8 @@ static volatile bool          result_ready;     /* true once finish_i() has some
 static void alarm_arm(uint32_t n, uint32_t delay_us)
 {
     out_w(TIMER_INTR, (1U << n));           /* clear any stale flag */
-    set_w(TIMER_INTE, (1U << n));           /* enable (unmask) this alarm's interrupt */
+    /* enable (unmask) this alarm's interrupt */
+    set_w(TIMER_INTE, (1U << n));
     /* Writing the alarm register is what arms it: the hardware timer
      * counts up in TIMER_TIMERAWL, so "current time + delay" is the raw
      * tick count at which the alarm should fire. Reading the current
@@ -122,9 +138,11 @@ static void alarm_arm(uint32_t n, uint32_t delay_us)
  * no longer needed). */
 static void alarm_cancel(uint32_t n)
 {
-    clr_w(TIMER_INTE, (1U << n));           /* disable (mask) this alarm's interrupt */
+    /* disable (mask) this alarm's interrupt */
+    clr_w(TIMER_INTE, (1U << n));
     out_w(TIMER_ARMED, (1U << n));          /* write 1 to disarm */
-    out_w(TIMER_INTR, (1U << n));           /* clear any pending flag so it can't fire late */
+    /* clear any pending flag so it can't fire late */
+    out_w(TIMER_INTR, (1U << n));
 }
 
 /* ------------------------------------------------------------------ *
@@ -189,7 +207,7 @@ static void ultra_drain(void *ctx)
         }
     }
 
-    /* Publish on the shared event bus (see TEAM_GUIDE.md §0.2) so any
+    /* Publish on the shared event bus (see TEAM_GUIDE.md §1.2) so any
      * subscriber — sub_scan.c's on_range(), and anything else that cares
      * — finds out a measurement completed, tagged with the angle it was
      * taken at. */
@@ -230,16 +248,21 @@ static void ultra_drain(void *ctx)
 static void trig_done_handler(UINT intno)
 {
     (void)intno;
-    out_w(TIMER_INTR, (1U << ALARM_TRIG));   /* acknowledge this alarm's interrupt flag */
-    clr_w(TIMER_INTE, (1U << ALARM_TRIG));   /* mask it again — one-shot, not recurring */
+    /* acknowledge this alarm's interrupt flag */
+    out_w(TIMER_INTR, (1U << ALARM_TRIG));
+    /* mask it again — one-shot, not recurring */
+    clr_w(TIMER_INTE, (1U << ALARM_TRIG));
 
     (void)gpio_set_val(RC_PIN_ULTRA_TRIG, 0U);   /* end the trigger pulse */
 
     state = ST_WAIT_RISE;
-    (void)rc_gpioirq_enable(RC_PIN_ULTRA_ECHO, true);  /* start listening for the echo */
-    alarm_arm(ALARM_TMO, RC_ULTRA_TIMEOUT_US);         /* step 5's safety-net timer */
+    /* start listening for the echo */
+    (void)rc_gpioirq_enable(RC_PIN_ULTRA_ECHO, true);
+    /* step 5's safety-net timer */
+    alarm_arm(ALARM_TMO, RC_ULTRA_TIMEOUT_US);
 
-    EndOfInt(INTNO_TIMER_1);   /* tell the interrupt controller this ISR is done */
+    /* tell the interrupt controller this ISR is done */
+    EndOfInt(INTNO_TIMER_1);
 }
 
 /*
@@ -263,7 +286,8 @@ static void timeout_handler(UINT intno)
     out_w(TIMER_INTR, (1U << ALARM_TMO));
 
     if (state != ST_IDLE) {
-        finish_i(0U, false);   /* 0 width, not valid — see finish_i/ultra_drain */
+        /* 0 width, not valid — see finish_i/ultra_drain */
+        finish_i(0U, false);
     }
     EndOfInt(INTNO_TIMER_2);
 }
@@ -405,7 +429,8 @@ rc_result_t drv_ultrasonic_ping(int16_t tag_angle_deg)
     tag_angle = tag_angle_deg;
     EI(sts);
 
-    (void)gpio_set_val(RC_PIN_ULTRA_TRIG, 1U);   /* start the 12us "shout" pulse */
+    /* start the 12us "shout" pulse */
+    (void)gpio_set_val(RC_PIN_ULTRA_TRIG, 1U);
     alarm_arm(ALARM_TRIG, RC_ULTRA_TRIG_US);     /* schedule step 2 to end it */
 
     return RC_OK;
