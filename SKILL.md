@@ -335,6 +335,13 @@ How it fits together, because it is the first thing that breaks if someone
   `make` has to be added (`winget install ezwinports.make`).
 - The kernel's `usermain()` is `WEAK_FUNC`, so `app/app_main.c` overrides it
   with no link tricks. The port's `app_program/` demo is simply not compiled.
+- `./build/build.sh bench=<motion|line|follow|barcode|imu|ultra|scan|telemetry>`
+  passes `RC_CFLAGS=-DRC_BENCH=RC_BENCH_<NAME>` to our objects only. `usermain`
+  then calls `rc_bench_run()` (`app/app_bench.c`, one plain function per
+  buddy) instead of `sub_nav_start()`. Images are suffixed `_bench-<name>`;
+  the mission image contains none of the bench code. build.sh deletes
+  `app/*.o` before every build because the port's stale-object guard does
+  not key on this define.
 
 Console is the Pico's own USB port; no USB-serial adapter exists on this car.
 

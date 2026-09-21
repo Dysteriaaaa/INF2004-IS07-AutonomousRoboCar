@@ -16,6 +16,9 @@
 # in app_program/ is simply no longer compiled; usermain() comes from
 # app/app_main.c and overrides the kernel's weak default.
 #
+# RC_CFLAGS is passed on the make command line by build/build.sh to select a
+# bench mode (-DRC_BENCH=...); it only reaches these objects.
+#
 # Nothing here changes INCPATH or CFLAGS for the rest of the tree.
 ################################################################################
 
@@ -35,6 +38,6 @@ $(shell mkdir -p $(addprefix mtkernel_3/robocar/,$(RC_DIRS)))
 
 mtkernel_3/robocar/%.o: $(RC_ROOT)/%.c
 	@echo 'Building file: $<'
-	$(GCC) $(CFLAGS) -D$(TARGET) $(INCPATH) $(RC_INC) -MF"$(@:%.o=%.d)" -MT"$(@)" -c -o "$@" "$<"
+	$(GCC) $(CFLAGS) -D$(TARGET) $(INCPATH) $(RC_INC) $(RC_CFLAGS) -MF"$(@:%.o=%.d)" -MT"$(@)" -c -o "$@" "$<"
 	@echo 'Finished building: $<'
 	@echo ' '

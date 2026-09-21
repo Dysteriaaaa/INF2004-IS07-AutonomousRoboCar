@@ -539,24 +539,28 @@ A reasonable split if you do go SMP: pin the radio and telemetry to processor
 Do not wire everything and flash once. In this order, each step is testable on
 its own:
 
-| Step | Test | Pass condition |
-|---|---|---|
-| 1 | Blink GP19 | LED blinks at 1 Hz |
-| 2 | `tm_printf` over USB | Text appears on the Pico's USB serial port |
-| 3 | Motors, open loop | Both wheels spin the right way at a fixed duty |
-| 4 | Encoders | Counts rise smoothly, no bursts (that is bounce — raise `DEBOUNCE_US`); speed is positive on both sides when driven forward (else swap A/B) |
-| 5 | Closed-loop speed | Commanded mm/s matches measured within 10 % |
-| 6 | IR sensors | DOUT flips crossing the line; AOUT differs clearly black vs white |
-| 7 | Line following | Car tracks a straight line, then a curve |
-| 8 | Servo | Sweeps 30° to 150° without buzzing at the ends |
-| 9 | Ultrasonic | Range matches a tape measure at 100, 300, 1000 mm |
-| 10 | Scan | A full coarse scan completes and the PID loop keeps running through it |
-| 11 | IMU | Pitch reads ~0 level, positive nose-up |
-| 12 | Hump | Peak estimate within 20 % of a ruler on a known hump |
-| 13 | Barcode | Consistent decode of one symbol at two different speeds |
-| 14 | Telemetry, console | Messages at 4 Hz with no dropped-event counts |
-| 15 | Telemetry, network | Same messages arriving on your laptop |
-| 16 | Full mission | End to end |
+Each step has a bench image that runs only that piece and prints its
+readings: `./build/build.sh bench=<name>` (see `app/app_bench.h` and
+TEAM_GUIDE.md §0.8).
+
+| Step | Bench | Test | Pass condition |
+|---|---|---|---|
+| 1 | any | Blink GP19 | LED blinks at 1 Hz |
+| 2 | any | `tm_printf` over USB | Text appears on the Pico's USB serial port |
+| 3 | `motion` | Motors, open loop | Both wheels spin the right way at a fixed duty |
+| 4 | `motion` | Encoders | Counts rise smoothly, no bursts (that is bounce — raise `DEBOUNCE_US`); speed is positive on both sides when driven forward (else swap A/B) |
+| 5 | `motion` | Closed-loop speed | Commanded mm/s matches measured within 10 % |
+| 6 | `line` | IR sensors | DO flips crossing the line; the barcode AO differs clearly black vs white |
+| 7 | `follow` | Line following | Car tracks a straight line, then a curve |
+| 8 | `scan` | Servo | Sweeps 30° to 150° without buzzing at the ends |
+| 9 | `ultra` | Ultrasonic | Range matches a tape measure at 100, 300, 1000 mm |
+| 10 | `scan` | Scan | A full coarse scan completes and the PID loop keeps running through it |
+| 11 | `imu` | IMU | Pitch reads ~0 level, positive nose-up |
+| 12 | `imu` | Hump | Peak estimate within 20 % of a ruler on a known hump |
+| 13 | `barcode` | Barcode | Consistent decode of one symbol at two different speeds |
+| 14 | `telemetry` | Telemetry, console | Messages at 4 Hz with no dropped-event counts |
+| 15 | `telemetry` | Telemetry, network | Same messages arriving on your laptop |
+| 16 | mission | Full mission | End to end |
 
 Steps 1–7 are the critical path. Everything else can proceed in parallel once
 the car drives.

@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 # Build the car firmware and produce a flashable .uf2 in build/out/.
 #
-#   ./build/build.sh            single core (SMP=0)  <- start here
-#   ./build/build.sh smp        dual core   (SMP=1)
+#   ./build/build.sh                  single core (SMP=0)  <- start here
+#   ./build/build.sh smp              dual core   (SMP=1)
+#   ./build/build.sh bench=motion     one buddy's bench test instead of the
+#                                     mission; names: motion line follow
+#                                     barcode imu ultra scan telemetry
+#                                     (see app/app_bench.h). Combines: smp bench=imu
 #   ./build/build.sh clean
 #
 # What it fixes for you so the port's own makefile just works on a laptop
@@ -25,14 +29,23 @@ PORT="$ROOT/external/mtk3smp-rp2040"
 OUT="$ROOT/build/out"
 PICO_HOME="${PICO_HOME:-$HOME/.pico-sdk}"
 
-mode="${1:-}"
 SMP=0
-case "$mode" in
-    ""|smp0) ;;
-    smp|smp1|SMP=1) SMP=1 ;;
-    clean) ;;
-    *) echo "usage: $0 [smp|clean]" >&2; exit 2 ;;
+BENCH=none
+mode=build
+for arg in "$@"; do
+    case "$arg" in
+        smp|smp1|SMP=1) SMP=1 ;;
+        smp0) SMP=0 ;;
+        bench=*) BENCH="${arg#bench=}" ;;
+        clean) mode=clean ;;
+        *) echo "usage: $0 [smp] [bench=<name>] [clean]" >&2; exit 2 ;;
+    esac
+done
+case "$BENCH" in
+    none|motion|line|follow|barcode|imu|ultra|scan|telemetry) ;;
+    *) echo "unknown bench '$BENCH'; see app/app_bench.h" >&2; exit 2 ;;
 esac
+BENCH_DEF="RC_BENCH_$(echo "$BENCH" | tr '[:lower:]' '[:upper:]')"
 
 [ -f "$PORT/build_make/makefile" ] || { echo "run ./build/setup.sh first" >&2; exit 1; }
 grep -q RC_ROOT "$PORT/build_make/mtkernel_3/app_program/subdir.mk" 2>/dev/null \
@@ -75,23 +88,33 @@ fi
 
 echo "== toolchain : $(arm-none-eabi-gcc --version | head -1)"
 echo "== pico sdk  : $PICO_SDK_PATH"
-echo "== profile   : SMP=$SMP CONSOLE=usb_cdc"
+echo "== profile   : SMP=$SMP CONSOLE=usb_cdc bench=$BENCH"
+
+# The bench selection is a -D on our own objects only. The port's stale-object
+# guard keys on its profile, not on RC_BENCH, so drop app/ objects ourselves
+# (two small files) to guarantee the right bench is linked.
+rm -f mtkernel_3/robocar/app/*.o mtkernel_3/robocar/app/*.d
 
 # E2U= empties the port's elf2uf2 variable so the .elf rule neither builds
 # nor runs that host tool; picotool does the conversion below.
-make -j"$(nproc 2>/dev/null || echo 4)" CONSOLE=usb_cdc PICO_SDK_PATH="$PICO_SDK_PATH" SMP="$SMP" E2U=
+make -j"$(nproc 2>/dev/null || echo 4)" CONSOLE=usb_cdc PICO_SDK_PATH="$PICO_SDK_PATH" SMP="$SMP" E2U= RC_CFLAGS="-DRC_BENCH=$BENCH_DEF"
 
 elf="mtk3pico_smp${SMP}_usb_cdc.elf"
 [ -f "$elf" ] || { echo "expected $elf was not produced" >&2; exit 1; }
 
+name="mtk3pico_smp${SMP}_usb_cdc"
+hint=""
+[ "$SMP" = 1 ]        && hint="$hint smp"
+[ "$BENCH" != none ]  && { name="${name}_bench-${BENCH}"; hint="$hint bench=$BENCH"; }
+
 mkdir -p "$OUT"
-cp "$elf" "$OUT/"
+cp "$elf" "$OUT/$name.elf"
 if [ -n "$PICOTOOL" ]; then
-    "$PICOTOOL" uf2 convert "$elf" "$OUT/${elf%.elf}.uf2" >/dev/null
+    "$PICOTOOL" uf2 convert "$elf" "$OUT/$name.uf2" >/dev/null
     echo
-    echo "== flash this : build/out/${elf%.elf}.uf2   (BOOTSEL + copy to RPI-RP2, or ./build/flash.sh)"
+    echo "== flash this : build/out/$name.uf2   (BOOTSEL + copy to RPI-RP2, or ./build/flash.sh$hint)"
 else
     echo
-    echo "== built $OUT/$elf but picotool was not found, so no .uf2 was made."
+    echo "== built $OUT/$name.elf but picotool was not found, so no .uf2 was made."
     echo "   Install picotool (the VS Code Pico extension provides it) or set PICOTOOL=/path/to/picotool."
 fi

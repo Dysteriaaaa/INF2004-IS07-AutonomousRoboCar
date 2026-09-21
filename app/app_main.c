@@ -34,6 +34,7 @@
 #include "sub_scan.h"
 #include "sub_telemetry.h"
 #include "sub_nav.h"
+#include "app_bench.h"
 
 #define IMU_CAL_SAMPLES     (100U)
 
@@ -160,11 +161,19 @@ EXPORT INT usermain(void)
     (void)sub_motion_set_speed(250U);
     (void)sub_line_set_base(350);
 
+#if RC_BENCH != RC_BENCH_NONE
+    /* A bench build (./build/build.sh bench=<name>) exercises one buddy's
+     * subsystem with its readings on the console instead of running the
+     * mission. rc_bench_run() never returns. */
+    tm_printf((UB *)"[init] ready, BENCH MODE: %s\n", rc_bench_name());
+    rc_bench_run();
+#else
     tm_printf((UB *)"[init] ready, starting run\n");
     (void)sub_nav_start();
 
     /* The initial task must not return: the kernel shuts down if it
      * does. Sleep forever and let the other tasks run. */
     (void)tk_slp_tsk(TMO_FEVR);
+#endif
     return 0;
 }

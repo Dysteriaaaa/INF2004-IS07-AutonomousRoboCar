@@ -40,7 +40,8 @@ work.
 core/         the plumbing everyone shares (event bus, timing, interrupts, PWM) — see §0.6
 drivers/      one file per physical part (motor, encoder, servo, ultrasonic sensor, IR sensor, IMU)
 subsystems/   one file per team member's "job", plus the shared mission logic
-app/          the startup code that wires everything together and boots the car
+app/          the startup code that wires everything together and boots the car,
+              plus app_bench.c — the per-buddy bench tests (§0.8)
 docs/         HARDWARE.md — wiring, pin numbers, and calibration steps; img/hw/ — part pictures used in §0.7
 ```
 
@@ -377,7 +378,10 @@ possible in this whole setup — double-check that wiring before you ever
 power it up.
 
 Then work through the **bring-up order** in `docs/HARDWARE.md` §7 — a
-numbered checklist that tests one thing at a time, in this order: blink
+numbered checklist that tests one thing at a time. Each step has a
+matching **bench image** (§0.8) that runs just that piece and prints its
+readings, so you never have to debug the full mission to test one sensor.
+In this order: blink
 LED → console print → motors spin the right way → encoders count cleanly
 → closed-loop speed control works → line sensors flip crossing the line
 → line following on a straight/curved line → servo sweeps cleanly →
@@ -918,6 +922,55 @@ laptop hotspot or router is needed for the demo, that's yours to bring.
 
 ---
 
+### 0.8 Running just *your* module — bench modes
+
+The normal image runs the whole mission: line following, barcodes,
+avoidance, everything at once. That's the wrong tool for bring-up. If the
+car misbehaves, five people's code is a suspect. So the build has **bench
+modes**: an image that initialises everything exactly as the mission
+does, but then — instead of starting the mission — runs *one* buddy's
+subsystem on its own and prints what it sees to the USB console, forever.
+
+You pick the bench when you build, and the image gets a matching name so
+nobody flashes the wrong one by accident:
+
+```sh
+./build/build.sh bench=imu          # -> build/out/mtk3pico_smp0_usb_cdc_bench-imu.uf2
+./build/flash.sh bench=imu          # Pico in BOOTSEL first
+```
+
+Then open the USB serial port (§0.5.6). The boot log ends with
+`[init] ready, BENCH MODE: imu` instead of `starting run`, followed by a
+banner saying what the bench expects you to do.
+
+| Bench | Buddy | Motors? | What it does |
+|---|---|---|---|
+| `motion` | 2 | **yes** | Open-loop spin with encoder readout, then one closed-loop 300 mm move, then hand-turn mode |
+| `line` | 3 | no | Prints both line sensors, position estimate and follower state 10× a second |
+| `follow` | 3 | **yes** | Same, but the line follower is enabled — the car drives along the line |
+| `barcode` | 3 | no | Decoder armed permanently; prints every bar/space width and every decoded symbol |
+| `imu` | 4 | no | Prints accelerometer, pitch, motion class and max hump peak 5× a second; announces humps |
+| `ultra` | 5 | no | Servo parked at 90°, one ping every 100 ms, range printed |
+| `scan` | 5 | no | Full coarse + fine sweep every few seconds, every ping printed, then the profile and plan |
+| `telemetry` | 1 | no | Everything sensing, car stationary; the `[telem]` stream at 4 Hz plus dropped-event counts |
+
+All the bench code is in one file, `app/app_bench.c`, one function per
+bench, deliberately plain — read yours before running it, and edit it
+freely (a different duty, a longer move, an extra field printed). It is
+*your* test harness. The mission image never contains any of it: the
+selection is a compile-time constant, so an unselected bench is
+dead-stripped.
+
+Each buddy's section below has a **"Run your module"** box with the
+command, what good output looks like, and what to do when it isn't.
+
+**Which is the right one to start with?** Follow `docs/HARDWARE.md` §7 in
+order: `motion` (steps 3–5) → `line` then `follow` (6–7) → `ultra` then
+`scan` (8–10) → `imu` (11–12) → `barcode` (13) → `telemetry` (14) → the
+mission image (16).
+
+---
+
 ## 1. Roles at a glance
 
 | Buddy | Files you own | What you're building |
@@ -976,6 +1029,20 @@ slot ready for the reverse direction — receiving driving commands from
 outside — though that path isn't wired up yet. Today the messages go to the
 on-screen debug console; the design lets that be swapped for WiFi later
 without rewriting anything else.
+
+**Run your module**
+
+```sh
+./build/build.sh bench=telemetry && ./build/flash.sh bench=telemetry
+```
+
+Everything senses, the motors stay off. Good output: a `[telem] car/01/state
+{...}` line four times a second with sensor values that change when you
+move the car by hand, a `[telem] car/01/status` heartbeat every ~2 s, and
+`[bench] dropped fast=0 slow=0` every 5 s. A non-zero dropped count means
+a consumer is too slow for the event ring — your first real bug to chase.
+Once your UDP sink exists, this same bench is where you point a `netcat`
+listener on your laptop and watch the same lines arrive over WiFi.
 
 **How to get started**
 
@@ -1740,6 +1807,35 @@ nudges the throttle up or down to close the gap. Every other module — line
 following, obstacle avoidance — just says "go forward 300mm" or "steer
 this much" and trusts this module to make the wheels do it.
 
+**Run your module**
+
+```sh
+./build/build.sh bench=motion && ./build/flash.sh bench=motion
+```
+
+**Wheels off the ground for phase 1.** The bench runs three phases and
+tells you which it's in:
+
+1. *Open loop, 30 % duty, 4 s* — prints
+   `L cnt=… spd=… dir=… | R cnt=… spd=… dir=…` every 250 ms. Good: both
+   counts climb steadily and **both speeds are positive**. A count that
+   doesn't move is a wiring/power problem on that encoder; a count that
+   jumps in bursts is bounce (raise `DEBOUNCE_US`); a **negative** speed
+   means that encoder's A and B wires are swapped — swap them, don't
+   negate in code. A wheel turning the wrong way is the *motor* wired
+   backwards — swap the motor's two wires.
+2. *`sub_motion_forward_mm(300)`* — the PID drives to 300 mm and the
+   completion callback prints `move completed, travelled N mm`. On the
+   ground, measure it with a tape: the error is what you fold into
+   `RC_ENC_UM_PER_TICK`. If it prints `ABORTED`, the move was cancelled
+   (see `sub_motion_stop`).
+3. *Motors off* — turn a wheel by hand and watch only that side's count
+   change. Good for checking the two encoders aren't cross-wired.
+
+Change the duty, the distance or add a `sub_motion_turn_deg()` phase in
+`bench_motion()` in `app/app_bench.c` as your tuning progresses — this is
+where the PID step-response logging for your report lives.
+
 **How to get started**
 
 1. **Measure the hardware.** Measure your wheel diameter and count the
@@ -2317,6 +2413,38 @@ the absolute timing that matters (that changes with speed) but the
 *ratio* between "short" and "long" flickers, and that ratio pattern spells
 out a letter, which the car then treats as a driving instruction (turn
 left, turn right, U-turn, or go straight).
+
+**Run your module** — three benches, in this order:
+
+```sh
+./build/build.sh bench=line    && ./build/flash.sh bench=line     # sensors only
+./build/build.sh bench=follow  && ./build/flash.sh bench=follow   # the car DRIVES
+./build/build.sh bench=barcode && ./build/flash.sh bench=barcode  # decoder
+```
+
+*`line`* — motors off. Prints `L=1 R=0 pos=-500 barcode_raw=… state=…`
+ten times a second. `1` means "sees black". Slide the sensors across the
+line by hand: each bit must flip cleanly at the line's edge, and
+`state` must go `TRACKING` → `LOST` when you lift the car off the line
+and `JUNCTION` when both sit on black. If a sensor reads `1` over
+*white*, your module has the opposite polarity — flip `IR_ACTIVE_HIGH` in
+`drv_ir.c`. If a bit flickers at the edge, that's the trim pot (§4.3 of
+`docs/HARDWARE.md`).
+
+*`follow`* — the line follower is enabled and steers through
+`sub_motion_drive()`. Put the car on the line first. It should track a
+straight, then a curve; when it weaves, that's the missing derivative
+term (your TODO). Base speed is the `sub_line_set_base(350)` in
+`app_main.c`.
+
+*`barcode`* — motors off, decoder armed forever. Pull a printed barcode
+under the sensor by hand, at two different speeds. You get one line per
+edge — `edge -> black after 4120 us` — and `[bench] DECODED 'A' cmd=1` on
+a match. Good: the wide bars are consistently 2–3× the narrow ones
+*regardless* of how fast you pulled, and `overruns=0`. No edges at all
+means the sensor's DO isn't on GP27 or the trim pot is off; edges but no
+decode on B/C/D means the placeholder table in `sub_barcode.c` (your
+TODO).
 
 **How to get started**
 
@@ -3148,6 +3276,25 @@ measure spin rate directly), so the "obvious" textbook approach of
 integrating rotation over time to get an angle is not available here —
 every trick in this module works around that missing piece.
 
+**Run your module**
+
+```sh
+./build/build.sh bench=imu && ./build/flash.sh bench=imu
+```
+
+Motors off. Keep the car **level and still** during boot — that's when
+`drv_imu_calibrate()` runs. Then five times a second:
+`acc x=… y=… z=… mg  pitch=… deg  class=…  max peak=… mm`. Good: level
+reads `z` ≈ 1000 mg and `pitch` ≈ 0.0; lift the nose and pitch goes
+**positive**, drop it and it goes negative; `class` is `STATIONARY`
+while it sits there. Push the car over a book: you should see
+`[bench] hump BEGIN`, then `hump END peak=… mm` and `max peak` update.
+If the boot log said `[init] imu FAILED`, the I²C wiring is wrong — SDA
+is GP4 and SCL is GP5, and swapping them is the usual cause. If pitch
+sits at a constant non-zero value, the board isn't mounted flat. This
+bench is also how you log flat-ground pitch noise to set
+`PITCH_ENTER_DDEG`.
+
 **How to get started**
 
 1. **Read the warning comment at the top of `drv_imu.h` first.** It lists
@@ -3614,6 +3761,30 @@ anything it finds (a "fine scan"), turn the raw distance readings into a
 description of the obstacle (how close, how wide, how much room on each
 side), and then decide whether the car should go straight, swerve left,
 swerve right, or stop.
+
+**Run your module** — two benches:
+
+```sh
+./build/build.sh bench=ultra && ./build/flash.sh bench=ultra   # ranging only
+./build/build.sh bench=scan  && ./build/flash.sh bench=scan    # the full sweep
+```
+
+*`ultra`* — the servo parks at 90° and the sensor pings straight ahead
+every 100 ms, printing `90 deg: 312 mm`. Hold a book at 100, 300 and
+1000 mm with a tape: readings should be within a few mm and steady. `no
+echo` every time means TRIG/ECHO are swapped or the divider is missing;
+wildly jumping values mean the servo is buzzing against its end-stop or
+the sensor is seeing the floor.
+
+*`scan`* — every few seconds a full sweep: the servo steps through
+30°…150°, each ping prints `<angle> deg: <mm>`, then if something is
+close it re-scans around it in 6° steps, and finally the profile and
+plan print: `closest 240 mm at 60 deg, width 90 mm, clearance L=… R=…`
+and `plan: TURN_RIGHT lateral=… forward=…`. Watch that the servo settles
+before each ping (if readings at a new angle look like the previous
+angle, raise the settle constants in `drv_servo.c`), and that the whole
+sweep completes without the console pausing — the PID loop must keep
+running through it (bring-up step 10).
 
 **How to get started**
 

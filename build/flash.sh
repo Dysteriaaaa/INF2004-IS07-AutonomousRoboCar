@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Flash the most recently built image with picotool.
 #
-#   ./build/flash.sh          single-core image
-#   ./build/flash.sh smp      dual-core image
+#   ./build/flash.sh                    single-core mission image
+#   ./build/flash.sh smp                dual-core mission image
+#   ./build/flash.sh bench=motion       a bench image (same names as build.sh)
 #
 # Put the Pico in BOOTSEL mode first (hold BOOTSEL, plug in USB, release).
 # If picotool is not found, just drag the .uf2 from build/out/ onto the
@@ -11,9 +12,17 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PICO_HOME="${PICO_HOME:-$HOME/.pico-sdk}"
-SMP=0; [ "${1:-}" = smp ] && SMP=1
-uf2="$ROOT/build/out/mtk3pico_smp${SMP}_usb_cdc.uf2"
-[ -f "$uf2" ] || { echo "no image at $uf2 - run ./build/build.sh${SMP:+ smp} first" >&2; exit 1; }
+SMP=0; BENCH=none
+for arg in "$@"; do
+    case "$arg" in
+        smp) SMP=1 ;;
+        bench=*) BENCH="${arg#bench=}" ;;
+        *) echo "usage: $0 [smp] [bench=<name>]" >&2; exit 2 ;;
+    esac
+done
+name="mtk3pico_smp${SMP}_usb_cdc"; [ "$BENCH" != none ] && name="${name}_bench-${BENCH}"
+uf2="$ROOT/build/out/$name.uf2"
+[ -f "$uf2" ] || { echo "no image at $uf2 - run ./build/build.sh $* first" >&2; exit 1; }
 
 PICOTOOL="${PICOTOOL:-$(command -v picotool 2>/dev/null || true)}"
 if [ -z "$PICOTOOL" ]; then
