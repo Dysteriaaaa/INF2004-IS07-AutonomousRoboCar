@@ -1,13 +1,18 @@
 """
-Generate the Robo Pico hardware-integration pin map for INF2004-IS07.
+Generate the INF2004-IS07 pin map in the style of the official Raspberry Pi
+Pico pinout diagram: the board in the centre, one row per physical header
+pin, and colour-coded chips fanning out to the left and right.
 
-Physical port positions follow the Cytron Robo Pico datasheet mechanical
-drawing (88 mm x 72 mm board, Grove 1 on the left edge, Grove 7 on the
-right edge, Grove 2-6 along the bottom edge, motor terminals and the
-4-way servo header along the top edge).
+The Robo Pico breaks every Pico pin out on its 2 x 20 female headers, so the
+row order here is the real 40-pin Pico header order (1-20 down the left,
+40-21 down the right). Each row adds two columns the stock Pico diagram does
+not have:
 
-Signal assignments follow core/rc_config.h and section 2 of the Week 6
-design review.
+  * which Robo Pico connector that pin is wired to (Grove port, motor
+    terminal, servo port, on-board peripheral), from the Cytron Robo Pico
+    datasheet; and
+  * what this project connects there, from core/rc_config.h and section 2
+    of the Week 6 design review.
 
 Run:  python docs/img/hw/gen_pin_map.py
 Out:  docs/img/hw/robopico_pin_map.png
@@ -17,32 +22,30 @@ Out:  docs/img/hw/robopico_pin_map.png
 import os
 from PIL import Image, ImageDraw, ImageFont
 
-W, H = 2000, 1560
-
 # ----------------------------------------------------------------- palette
-BG          = "#ffffff"
-INK         = "#1a1a1a"
-MUTED       = "#5b5b5b"
+BG        = "#ffffff"
+INK       = "#1a1a1a"
+MUTED     = "#5b5b5b"
 
-BOARD_FILL  = "#efe9f7"    # Robo Pico is a purple PCB
-BOARD_EDGE  = "#5e35b1"
+C_GP      = ("#a8d08d", "#1b3d10")      # GPIO number chip, as on the Pico diagram
+C_PIN     = ("#dcdcdc", "#2b2b2b")      # physical pin number
+C_GND     = ("#3a3f44", "#ffffff")
+C_PWR     = ("#e8453c", "#ffffff")
+C_PWR2    = ("#f7c0bd", "#6d1512")      # 3V3_EN / RUN
+C_UART    = ("#8f7cc0", "#ffffff")
+C_I2C     = ("#5ba3d9", "#08304d")
+C_PWM     = ("#e0579a", "#ffffff")
+C_ADC     = ("#2f7d4f", "#ffffff")
+C_GPIO    = ("#c7d3dd", "#1d2b36")
 
-USED_FILL   = "#d9ead3"    # port carrying a signal this project uses
-USED_EDGE   = "#38761d"
+USED      = ("#d9ead3", "#2f6b1c")      # this project uses it
+FREE      = ("#efefef", "#6d6d6d")      # broken out, spare
+WARN      = ("#ffe9b0", "#8a6200")      # conflict, see notes
 
-FREE_FILL   = "#eeeeee"    # on-board but unused by us
-FREE_EDGE   = "#999999"
-
-DEV_FILL    = "#ffffff"    # external device / module
-DEV_EDGE    = "#444444"
-
-WARN_FILL   = "#fff2cc"    # conflict that had to be patched
-WARN_EDGE   = "#bf9000"
-
-PICO_FILL   = "#dce9f7"
-PICO_EDGE   = "#3d6fa5"
-
-LEAD        = "#6b6b6b"
+BOARD_F   = "#efe9f7"
+BOARD_E   = "#5e35b1"
+SOCK_F    = "#2f7d4f"
+SOCK_E    = "#1d5133"
 
 FONTDIR = r"C:\Windows\Fonts"
 
@@ -56,300 +59,261 @@ def font(name, size):
     return ImageFont.load_default()
 
 
-F_TITLE  = font("arialbd.ttf", 42)
-F_SUB    = font("arial.ttf", 23)
-F_LEG    = font("arial.ttf", 21)
-F_BOXT   = font("arialbd.ttf", 23)
-F_BOXB   = font("arial.ttf", 20)
-F_BOXS   = font("arial.ttf", 18)
-F_PORT   = font("arialbd.ttf", 18)
-F_PIN    = font("arialbd.ttf", 17)
-F_TINY   = font("arial.ttf", 16)
-F_NOTE   = font("arial.ttf", 20)
-F_NOTEB  = font("arialbd.ttf", 20)
-F_BOARD  = font("arialbd.ttf", 26)
+F_TITLE = font("arialbd.ttf", 44)
+F_SUB   = font("arial.ttf", 24)
+F_LEG   = font("arial.ttf", 20)
+F_DEV   = font("arial.ttf", 21)
+F_DEVB  = font("arialbd.ttf", 21)
+F_PORT  = font("arialbd.ttf", 19)
+F_IF    = font("arial.ttf", 18)
+F_GP    = font("arialbd.ttf", 21)
+F_NUM   = font("arialbd.ttf", 18)
+F_NOTE  = font("arial.ttf", 21)
+F_NOTEB = font("arialbd.ttf", 21)
+F_BRAND = font("arialbd.ttf", 30)
+F_SMALL = font("arial.ttf", 17)
+F_HEAD  = font("arialbd.ttf", 18)
+
+# ----------------------------------------------------------------- geometry
+W, H      = 2400, 1720
+ROW_H     = 54
+ROWS      = 20
+TOP       = 268
+BX0, BX1  = 950, 1450          # centre board
+
+PIN_W, GP_W, IF_W, PORT_W, DEV_W = 46, 96, 132, 174, 346
+GAP       = 8
+CH        = 38                 # chip height
 
 img = Image.new("RGB", (W, H), BG)
 d = ImageDraw.Draw(img)
 
 
-def text_w(s, f):
+def tw(s, f):
     return d.textbbox((0, 0), s, font=f)[2]
 
 
-def ctext(cx, y, s, f, fill=INK):
-    d.text((cx - text_w(s, f) / 2, y), s, font=f, fill=fill)
+def ctext(cx, cy, s, f, fill=INK):
+    d.text((cx - tw(s, f) / 2, cy - f.size * 0.72), s, font=f, fill=fill)
 
 
-def box(x0, y0, x1, y1, fill, edge, r=10, width=2):
-    d.rounded_rectangle([x0, y0, x1, y1], radius=r, fill=fill, outline=edge, width=width)
+def chip(x0, cy, w, label, pair, f=F_IF, r=7, border=None):
+    """One rounded label chip, vertically centred on cy."""
+    if not label:
+        return
+    fill, txt = pair
+    d.rounded_rectangle([x0, cy - CH / 2, x0 + w, cy + CH / 2], radius=r,
+                        fill=fill, outline=border or fill, width=2)
+    ctext(x0 + w / 2, cy, label, f, txt)
 
 
-def devbox(x0, y0, x1, y1, title, lines, fill=DEV_FILL, edge=DEV_EDGE):
-    """External device / annotation box: bold title then body lines."""
-    box(x0, y0, x1, y1, fill, edge)
-    cx = (x0 + x1) / 2
-    y = y0 + 12
-    ctext(cx, y, title, F_BOXT)
-    y += 32
-    for ln in lines:
-        f = F_BOXB if not ln.startswith("~") else F_BOXS
-        ctext(cx, y, ln.lstrip("~"), f, MUTED if ln.startswith("~") else INK)
-        y += 26 if not ln.startswith("~") else 23
-    return y
+def state_pair(state):
+    return {"used": USED, "warn": WARN, "free": FREE}[state]
 
 
-def lead(pts):
-    d.line(pts, fill=LEAD, width=2)
+def state_edge(state):
+    return {"used": "#2f6b1c", "warn": "#bf9000", "free": "#b5b5b5"}[state]
 
+
+# ----------------------------------------------------------------- rows
+# (pin, kind, gp, iface, iface_colour, robo-pico connector, our device, state)
+G = "gnd"
+P = "pwr"
+IO = "io"
+
+left = [
+    (1,  IO, "GP0",  "UART0 TX",     C_UART, "GROVE 1",      "Console TX \u2192 USB-serial",  "used"),
+    (2,  IO, "GP1",  "UART0 RX",     C_UART, "GROVE 1",      "Console RX \u2190 USB-serial",  "used"),
+    (3,  G,  "",     "GND",          C_GND,  "",             "",                              "free"),
+    (4,  IO, "GP2",  "I\u00b2C1 SDA", C_I2C, "GROVE 2 / MAKER", "IMU SDA (LSM303DLHC)",       "warn"),
+    (5,  IO, "GP3",  "I\u00b2C1 SCL", C_I2C, "GROVE 2 / MAKER", "IMU SCL (LSM303DLHC)",       "warn"),
+    (6,  IO, "GP4",  "GPIO in, IRQ", C_GPIO, "GROVE 3",      "Left wheel encoder",            "used"),
+    (7,  IO, "GP5",  "GPIO in, IRQ", C_GPIO, "GROVE 3",      "Right wheel encoder",           "used"),
+    (8,  G,  "",     "GND",          C_GND,  "",             "",                              "free"),
+    (9,  IO, "GP6",  "GPIO in",      C_GPIO, "GROVE 5",      "IR line sensor L \u2014 DOUT",  "used"),
+    (10, IO, "GP7",  "GPIO in",      C_GPIO, "GROVE 7",      "IR line sensor R \u2014 DOUT",  "used"),
+    (11, IO, "GP8",  "PWM 4A",       C_PWM,  "MOTOR 1  M1A", "Left motor A",                  "used"),
+    (12, IO, "GP9",  "PWM 4B",       C_PWM,  "MOTOR 1  M1B", "Left motor B",                  "used"),
+    (13, G,  "",     "GND",          C_GND,  "",             "",                              "free"),
+    (14, IO, "GP10", "PWM 5A",       C_PWM,  "MOTOR 2  M2A", "Right motor A",                 "used"),
+    (15, IO, "GP11", "PWM 5B",       C_PWM,  "MOTOR 2  M2B", "Right motor B",                 "used"),
+    (16, IO, "GP12", "PWM 6A",       C_PWM,  "SERVO 1",      "Scan servo (HC-SR04 pan)",      "used"),
+    (17, IO, "GP13", "PWM 6B",       C_PWM,  "SERVO 2",      "spare",                         "free"),
+    (18, G,  "",     "GND",          C_GND,  "",             "",                              "free"),
+    (19, IO, "GP14", "PWM 7A",       C_PWM,  "SERVO 3",      "spare",                         "free"),
+    (20, IO, "GP15", "PWM 7B",       C_PWM,  "SERVO 4",      "spare",                         "free"),
+]
+
+right = [
+    (40, P,  "",     "VBUS",         C_PWR,  "",             "5 V from USB",                  "free"),
+    (39, P,  "",     "VSYS",         C_PWR,  "",             "LiPo / Vin rail, 3.6\u20136 V", "free"),
+    (38, G,  "",     "GND",          C_GND,  "",             "",                              "free"),
+    (37, P,  "",     "3V3_EN",       C_PWR2, "",             "",                              "free"),
+    (36, P,  "",     "3V3 (OUT)",    C_PWR,  "",             "3V3 rail \u2014 300 mA total",  "free"),
+    (35, P,  "",     "ADC_VREF",     C_PWR2, "",             "",                              "free"),
+    (34, IO, "GP28", "ADC2",         C_ADC,  "GROVE 7",      "spare (analogue capable)",      "free"),
+    (33, G,  "",     "AGND",         C_GND,  "",             "",                              "free"),
+    (32, IO, "GP27", "GPIO 2-edge",  C_GPIO, "GROVE 6",      "IR barcode \u2014 DOUT",        "used"),
+    (31, IO, "GP26", "ADC0",         C_ADC,  "GROVE 5 + 6",  "IR barcode \u2014 AOUT",        "warn"),
+    (30, P,  "",     "RUN",          C_PWR2, "",             "reset",                         "free"),
+    (29, IO, "GP22", "GPIO / PWM",   C_GPIO, "on-board",     "Piezo buzzer (unused)",         "free"),
+    (28, G,  "",     "GND",          C_GND,  "",             "",                              "free"),
+    (27, IO, "GP21", "GPIO in",      C_GPIO, "on-board",     "Button 2 (reserved)",           "free"),
+    (26, IO, "GP20", "GPIO in",      C_GPIO, "on-board",     "Button 1 (reserved)",           "free"),
+    (25, IO, "GP19", "GPIO out",     C_GPIO, "breakout hdr", "Status LED + 330 \u03a9",       "warn"),
+    (24, IO, "GP18", "PIO",          C_GPIO, "on-board",     "2 \u00d7 WS2812 RGB (unused)",  "free"),
+    (23, G,  "",     "GND",          C_GND,  "",             "",                              "free"),
+    (22, IO, "GP17", "GPIO in, IRQ", C_GPIO, "GROVE 4",      "HC-SR04 ECHO \u2014 5 V!",      "warn"),
+    (21, IO, "GP16", "GPIO out",     C_GPIO, "GROVE 4",      "HC-SR04 TRIG",                  "warn"),
+]
 
 # ----------------------------------------------------------------- heading
-ctext(W / 2, 34, "Robo Pico \u2014 Hardware Integration Pin Map", F_TITLE)
-ctext(W / 2, 88,
-      "INF2004-IS07 autonomous robotic car   \u00b7   port positions per the Cytron Robo Pico datasheet   \u00b7   "
-      "signal assignments per core/rc_config.h",
+ctext(W / 2, 62, "Robo Pico \u2014 Hardware Integration Pin Map", F_TITLE)
+ctext(W / 2, 108,
+      "INF2004-IS07 autonomous robotic car   \u00b7   every Pico pin as broken out by the Cytron Robo Pico   \u00b7   "
+      "assignments from core/rc_config.h",
       F_SUB, MUTED)
 
-# legend
-leg = [("Port / pin used by this project", USED_FILL, USED_EDGE),
-       ("On-board, reserved or unused", FREE_FILL, FREE_EDGE),
-       ("External device or module", DEV_FILL, DEV_EDGE),
-       ("Conflict \u2014 patched, see notes", WARN_FILL, WARN_EDGE)]
-lx = 300
-for label, fl, eg in leg:
-    d.rounded_rectangle([lx, 132, lx + 34, 158], radius=5, fill=fl, outline=eg, width=2)
-    d.text((lx + 46, 133), label, font=F_LEG, fill=INK)
-    lx += 60 + text_w(label, F_LEG) + 42
+legend = [("Used by this project", USED[0], "#2f6b1c"),
+          ("Broken out, spare", FREE[0], "#b5b5b5"),
+          ("Conflict \u2014 see notes below", WARN[0], "#bf9000")]
+lx = 690
+for lbl, fl, eg in legend:
+    d.rounded_rectangle([lx, 146, lx + 32, 172], radius=6, fill=fl, outline=eg, width=2)
+    d.text((lx + 44, 147), lbl, font=F_LEG, fill=INK)
+    lx += 44 + tw(lbl, F_LEG) + 62
+
+# column headings
+hdr_y = 232
+lx_pin = BX0 - 20 - PIN_W
+lx_gp = lx_pin - GAP - GP_W
+lx_if = lx_gp - GAP - IF_W
+lx_pt = lx_if - GAP - PORT_W
+lx_dev = lx_pt - GAP - DEV_W
+
+rx_pin = BX1 + 20
+rx_gp = rx_pin + PIN_W + GAP
+rx_if = rx_gp + GP_W + GAP
+rx_pt = rx_if + IF_W + GAP
+rx_dev = rx_pt + PORT_W + GAP
+
+for x, w, lbl in ((lx_dev, DEV_W, "What we connect"), (lx_pt, PORT_W, "Robo Pico port"),
+                  (lx_if, IF_W, "Function"), (lx_gp, GP_W, "GPIO"), (lx_pin, PIN_W, "Pin")):
+    ctext(x + w / 2, hdr_y, lbl, F_HEAD, MUTED)
+for x, w, lbl in ((rx_pin, PIN_W, "Pin"), (rx_gp, GP_W, "GPIO"), (rx_if, IF_W, "Function"),
+                  (rx_pt, PORT_W, "Robo Pico port"), (rx_dev, DEV_W, "What we connect")):
+    ctext(x + w / 2, hdr_y, lbl, F_HEAD, MUTED)
 
 # ----------------------------------------------------------------- board
-BX, BY, BW, BH = 600, 430, 800, 655
+BTOP, BBOT = TOP - 30, TOP + ROWS * ROW_H + 16
+d.rounded_rectangle([BX0, BTOP, BX1, BBOT], radius=22, fill=BOARD_F, outline=BOARD_E, width=3)
+ctext((BX0 + BX1) / 2, BTOP + 34, "Cytron", F_SMALL, "#7e57c2")
+ctext((BX0 + BX1) / 2, BTOP + 66, "ROBO PICO", F_BRAND, "#5e35b1")
+ctext((BX0 + BX1) / 2, BTOP + 96, "carrier board", F_SMALL, "#7e57c2")
+
+# Pico W socket in the middle of the carrier
+sx0, sx1 = BX0 + 118, BX1 - 118
+sy0, sy1 = BTOP + 132, BBOT - 150
+d.rounded_rectangle([sx0, sy0, sx1, sy1], radius=14, fill=SOCK_F, outline=SOCK_E, width=3)
+# USB shield at the top of the socket
+d.rounded_rectangle([(sx0 + sx1) / 2 - 42, sy0 - 26, (sx0 + sx1) / 2 + 42, sy0 + 20],
+                    radius=8, fill="#d7dade", outline="#8c9196", width=3)
+ctext((sx0 + sx1) / 2, sy0 + 46, "USB", F_SMALL, "#ffffff")
+# RP2040
+d.rounded_rectangle([(sx0 + sx1) / 2 - 62, (sy0 + sy1) / 2 - 62, (sx0 + sx1) / 2 + 62, (sy0 + sy1) / 2 + 62],
+                    radius=8, fill="#20242a", outline="#0e1013", width=2)
+ctext((sx0 + sx1) / 2, (sy0 + sy1) / 2 - 16, "RP2040", F_PORT, "#e8e8e8")
+ctext((sx0 + sx1) / 2, (sy0 + sy1) / 2 + 14, "+ CYW43439", F_SMALL, "#b9c0c8")
+ctext((sx0 + sx1) / 2, (sy0 + sy1) / 2 + 42, "radio", F_SMALL, "#b9c0c8")
+ctext((sx0 + sx1) / 2, sy1 - 78, "Raspberry Pi Pico W", F_SMALL, "#ffffff")
+ctext((sx0 + sx1) / 2, sy1 - 50, "GP23 / 24 / 25 / 29 \u2192 radio,", F_SMALL, "#cfe6d6")
+ctext((sx0 + sx1) / 2, sy1 - 26, "not on the header", F_SMALL, "#cfe6d6")
+
+ctext((BX0 + BX1) / 2, BBOT - 104, "2 \u00d7 20 GPIO breakout headers", F_SMALL, "#5e35b1")
+ctext((BX0 + BX1) / 2, BBOT - 78, "every Pico pin is re-exposed on the", F_SMALL, "#7e57c2")
+ctext((BX0 + BX1) / 2, BBOT - 56, "carrier's Grove / motor / servo ports", F_SMALL, "#7e57c2")
+
+# ----------------------------------------------------------------- pin rows
+def draw_side(rows, side):
+    for i, (pin, kind, gp, iface, ifcol, port, dev, state) in enumerate(rows):
+        cy = TOP + i * ROW_H + ROW_H / 2
+
+        # header pad + stub into the board
+        pad_x = BX0 + 12 if side == "L" else BX1 - 12
+        d.ellipse([pad_x - 9, cy - 9, pad_x + 9, cy + 9], fill="#f3c969", outline="#8a6b18", width=2)
+        if side == "L":
+            d.line([(BX0 - 20, cy), (pad_x - 9, cy)], fill="#9aa0a6", width=2)
+        else:
+            d.line([(pad_x + 9, cy), (BX1 + 20, cy)], fill="#9aa0a6", width=2)
+
+        if side == "L":
+            xp, xg, xi, xt, xd = lx_pin, lx_gp, lx_if, lx_pt, lx_dev
+        else:
+            xp, xg, xi, xt, xd = rx_pin, rx_gp, rx_if, rx_pt, rx_dev
+
+        chip(xp, cy, PIN_W, str(pin), C_PIN, F_NUM, r=5)
+
+        if kind == IO:
+            chip(xg, cy, GP_W, gp, C_GP, F_GP)
+            chip(xi, cy, IF_W, iface, ifcol, F_IF)
+        else:
+            # power / ground rails span the GPIO + function columns
+            chip(xg, cy, GP_W + GAP + IF_W, iface, ifcol, F_IF)
+
+        if port:
+            chip(xt, cy, PORT_W, port, state_pair(state), F_PORT, border=state_edge(state))
+        if dev:
+            f = F_DEVB if state == "used" else F_DEV
+            chip(xd, cy, DEV_W, dev, state_pair(state), f, border=state_edge(state))
 
 
-def bx(f):
-    return BX + f * BW
+draw_side(left, "L")
+draw_side(right, "R")
 
-
-def by(f):
-    return BY + f * BH
-
-
-box(BX, BY, BX + BW, BY + BH, BOARD_FILL, BOARD_EDGE, r=18, width=3)
-# silkscreen branding + orientation, in the clear strip left of the socket
-ctext(bx(0.105), by(0.165), "Cytron", F_TINY, "#7e57c2")
-ctext(bx(0.105), by(0.195), "ROBO PICO", F_BOARD, "#5e35b1")
-ctext(bx(0.105), by(0.245), "88 \u00d7 72 mm", F_TINY, "#7e57c2")
-ctext(bx(0.105), by(0.272), "top view, USB left", F_TINY, "#7e57c2")
-
-# ---- Pico W socket (centre)
-px0, py0, px1, py1 = bx(0.20), by(0.30), bx(0.82), by(0.64)
-box(px0, py0, px1, py1, PICO_FILL, PICO_EDGE)
-ctext((px0 + px1) / 2, py0 + 18, "Raspberry Pi Pico W socket", F_BOXT, "#22496f")
-ctext((px0 + px1) / 2, py0 + 50, "GP23 / GP24 / GP25 / GP29  \u2192  CYW43439 radio (WiFi telemetry)", F_TINY, "#22496f")
-ctext((px0 + px1) / 2, py0 + 74, "flanked by the 2 \u00d7 20 GPIO breakout headers", F_TINY, MUTED)
-# USB end marker
-d.rectangle([px0 - 16, (py0 + py1) / 2 - 16, px0 + 2, (py0 + py1) / 2 + 16],
-            fill="#cfd8dc", outline="#607d8b", width=2)
-d.text((px0 - 14, (py0 + py1) / 2 + 22), "USB", font=F_TINY, fill=MUTED)
-# breakout header strips
-for yy in (py0 - 22, py1 + 6):
-    d.rectangle([px0 + 10, yy, px1 - 10, yy + 16], fill="#37474f", outline="#263238")
-
-# GP19 status LED is taken off the breakout header, not a dedicated port
-box(bx(0.125), by(0.325), bx(0.195), by(0.405), USED_FILL, USED_EDGE, r=5)
-ctext(bx(0.16), by(0.335), "GP19", F_PIN, USED_EDGE)
-ctext(bx(0.16), by(0.368), "LED", F_TINY, USED_EDGE)
-
-# ---- top edge: power, motor terminals, servo header
-# LiPo + VIN
-box(bx(0.10), by(0.03), bx(0.17), by(0.10), FREE_FILL, FREE_EDGE, r=5)
-ctext(bx(0.135), by(0.045), "LiPo", F_TINY, MUTED)
-box(bx(0.19), by(0.02), bx(0.30), by(0.11), "#c8e6c9", "#2e7d32", r=5)
-ctext(bx(0.245), by(0.035), "VIN", F_PORT, "#2e7d32")
-ctext(bx(0.245), by(0.070), "3.6-6 V", F_TINY, "#2e7d32")
-
-# MOTOR 2 terminal (right motor: M2B = GP11, M2A = GP10)
-box(bx(0.35), by(0.025), bx(0.49), by(0.125), USED_FILL, USED_EDGE, r=5)
-ctext(bx(0.42), by(0.035), "MOTOR 2", F_PORT, USED_EDGE)
-ctext(bx(0.42), by(0.072), "M2B  M2A", F_TINY, USED_EDGE)
-ctext(bx(0.42), by(0.096), "GP11  GP10", F_PIN, USED_EDGE)
-
-# MOTOR 1 terminal (left motor: M1B = GP9, M1A = GP8)
-box(bx(0.545), by(0.025), bx(0.685), by(0.125), USED_FILL, USED_EDGE, r=5)
-ctext(bx(0.615), by(0.035), "MOTOR 1", F_PORT, USED_EDGE)
-ctext(bx(0.615), by(0.072), "M1B  M1A", F_TINY, USED_EDGE)
-ctext(bx(0.615), by(0.096), "GP9   GP8", F_PIN, USED_EDGE)
-
-# SERVO header: four 3-pin ports, only port 1 (GP12) is used
-box(bx(0.78), by(0.03), bx(0.95), by(0.145), FREE_FILL, FREE_EDGE, r=5)
-ctext(bx(0.865), by(0.038), "SERVO", F_PORT, MUTED)
-_sx = bx(0.792)
-for _n, _gp in enumerate(("12", "13", "14", "15")):
-    _w, _g = 26, 6
-    _x0 = _sx + _n * (_w + _g)
-    _used = (_n == 0)
-    d.rounded_rectangle([_x0, by(0.078), _x0 + _w, by(0.135)], radius=4,
-                        fill=USED_FILL if _used else "#ffffff",
-                        outline=USED_EDGE if _used else FREE_EDGE, width=2)
-    ctext(_x0 + _w / 2, by(0.092), _gp, F_TINY, USED_EDGE if _used else MUTED)
-
-# ---- left edge: GROVE 1
-box(BX - 4, by(0.52), bx(0.145), by(0.665), USED_FILL, USED_EDGE, r=5)
-ctext(bx(0.070), by(0.535), "GROVE 1", F_TINY, USED_EDGE)
-ctext(bx(0.070), by(0.567), "GP0 / GP1", F_PIN, USED_EDGE)
-ctext(bx(0.070), by(0.602), "TX / RX", F_TINY, MUTED)
-ctext(bx(0.070), by(0.630), "GND 3V3", F_TINY, MUTED)
-
-# ---- right edge: GROVE 7
-box(bx(0.855), by(0.52), BX + BW + 4, by(0.665), USED_FILL, USED_EDGE, r=5)
-ctext(bx(0.930), by(0.535), "GROVE 7", F_TINY, USED_EDGE)
-ctext(bx(0.930), by(0.567), "GP28 / GP7", F_PIN, USED_EDGE)
-ctext(bx(0.930), by(0.602), "GP7 → line R", F_TINY, MUTED)
-ctext(bx(0.930), by(0.630), "3V3 GND", F_TINY, MUTED)
-
-# ---- buzzer + mute switch (right of the socket)
-box(bx(0.845), by(0.41), bx(0.935), by(0.49), FREE_FILL, FREE_EDGE, r=5)
-ctext(bx(0.89), by(0.425), "BUZZER", F_TINY, MUTED)
-ctext(bx(0.89), by(0.452), "GP22", F_PIN, MUTED)
-
-# ---- buttons row
-btns = [(0.29, "RST"), (0.43, "GP21"), (0.57, "GP20")]
-for f, lbl in btns:
-    d.rounded_rectangle([bx(f), by(0.695), bx(f + 0.095), by(0.745)], radius=16,
-                        fill=FREE_FILL, outline=FREE_EDGE, width=2)
-    ctext(bx(f + 0.0475), by(0.705), lbl, F_TINY, MUTED)
-
-# ---- RGB neopixels on GP18, one at each bottom corner
-for f in (0.035, 0.94):
-    d.ellipse([bx(f), by(0.70), bx(f + 0.035), by(0.745)], fill="#bbdefb", outline="#1565c0", width=2)
-ctext(bx(0.052), by(0.755), "GP18 RGB", F_TINY, MUTED)
-ctext(bx(0.925), by(0.755), "GP18 RGB", F_TINY, MUTED)
-
-# ---- MAKER port (QWIIC / Stemma QT, shares GP2/GP3 with Grove 2)
-box(bx(0.042), by(0.86), bx(0.132), by(0.95), WARN_FILL, WARN_EDGE, r=5)
-ctext(bx(0.087), by(0.872), "MAKER", F_TINY, WARN_EDGE)
-ctext(bx(0.087), by(0.900), "GP2/3", F_TINY, WARN_EDGE)
-
-# ---- bottom edge Grove ports 2..6
-groves = [
-    (0.152, 0.256, "GROVE 2", "GP2 / GP3",   True),
-    (0.320, 0.432, "GROVE 3", "GP4 / GP5",   True),
-    (0.488, 0.600, "GROVE 4", "GP16 / GP17", True),
-    (0.656, 0.768, "GROVE 5", "GP6 / GP26",  True),
-    (0.824, 0.936, "GROVE 6", "GP26 / GP27", True),
-]
-grove_anchor = {}
-for f0, f1, name, pins, used in groves:
-    fill, edge = (USED_FILL, USED_EDGE) if used else (FREE_FILL, FREE_EDGE)
-    x0, x1 = bx(f0), bx(f1)
-    box(x0, by(0.845), x1, by(0.975), fill, edge, r=5)
-    ctext((x0 + x1) / 2, by(0.858), name, F_PORT, edge)
-    ctext((x0 + x1) / 2, by(0.898), pins, F_PIN, edge)
-    # connector shroud
-    d.rectangle([x0 + 10, by(0.935), x1 - 10, by(0.972)], fill="#fafafa", outline="#9e9e9e", width=2)
-    grove_anchor[name] = ((x0 + x1) / 2, by(0.975))
-
-# ================================================================= devices
-# ---- top row device boxes
-devbox(300, 196, 660, 356, "Power input",
-       ["LiPo 1S or Vin 3.6\u20136 V", "~3V3 rail: 300 mA total to Grove ports",
-        "~motors + servo share the pack \u2014", "~add 470 \u00b5F if the servo browns out"])
-
-devbox(700, 196, 960, 356, "Right motor",
-       ["DC gear motor + wheel", "M2A GP10 / M2B GP11", "~PWM slice 5 ch A/B, 20 kHz",
-        "~drv_motor \u2022 Motion task"])
-
-devbox(980, 196, 1240, 356, "Left motor",
-       ["DC gear motor + wheel", "M1A GP8 / M1B GP9", "~PWM slice 4 ch A/B, 20 kHz",
-        "~drv_motor \u2022 Motion task"])
-
-devbox(1260, 196, 1560, 356, "Scan servo (SG90)",
-       ["Pan bracket for the HC-SR04", "GP12 \u2014 servo port 1", "~PWM slice 6 ch A, 50 Hz",
-        "~drv_servo \u2022 Scan task"])
-
-lead([(480, 356), (480, 400), (bx(0.245), 400), (bx(0.245), by(0.02))])
-lead([(830, 356), (830, 404), (bx(0.42), 404), (bx(0.42), by(0.025))])
-lead([(1110, 356), (1110, 392), (bx(0.615), 392), (bx(0.615), by(0.025))])
-lead([(1410, 356), (1410, 380), (bx(0.805), 380), (bx(0.805), by(0.03))])
-
-# ---- left device box: Grove 1 console
-devbox(40, 700, 560, 860, "UART0 console",
-       ["USB\u2013serial adapter, 115200 8N1", "GP0 TX / GP1 RX \u2014 GROVE 1",
-        "~tm_printf output and the console", "~telemetry sink until WiFi is up"])
-lead([(560, 780), (BX - 4, 780)])
-
-# ---- left lower: status LED
-devbox(40, 895, 560, 1035, "Status LED (external)",
-       ["LED + 330 \u03a9 on GP19", "taken from the GPIO breakout header",
-        "~Pico W's own LED hangs off the CYW43", "~radio, so it cannot be used here"],
-       fill=WARN_FILL, edge=WARN_EDGE)
-lead([(560, 960), (575, 960), (575, by(0.365)), (bx(0.125), by(0.365))])
-
-# ---- right device box: Grove 7 line sensor right
-devbox(1440, 700, 1960, 860, "IR line sensor \u2014 right",
-       ["ST188 / TCRT5000 reflective module", "DOUT \u2192 GP7 \u2014 GROVE 7",
-        "~polled by the Sense task @ 200 Hz", "~drv_ir \u2022 sub_line"])
-lead([(1440, 780), (BX + BW + 4, 780)])
-
-# ---- right lower: on-board unused
-devbox(1440, 895, 1960, 1035, "On-board, not used by this project",
-       ["Piezo buzzer GP22  \u00b7  2 \u00d7 RGB LED GP18", "Buttons GP20 / GP21  \u00b7  servo ports 2\u20134",
-        "~GP13/GP14/GP15 free \u00b7 GP28 free", "~reserved for start/stop + fault beep"],
-       fill=FREE_FILL, edge=FREE_EDGE)
-
-# ---- bottom device boxes, one per Grove port
-bottom = [
-    ("GROVE 2", "LSM303DLHC IMU", ["Accelerometer + magnetometer", "SDA GP2 / SCL GP3 \u2014 I\u00b2C1",
-                                   "~0x19 accel \u00b7 0x1E mag \u00b7 no gyro",
-                                   "~Sense task @ 100 Hz \u2022 drv_imu"], WARN_FILL, WARN_EDGE),
-    ("GROVE 3", "Wheel encoders", ["2 \u00d7 slotted optical encoder", "ENC_L GP4 / ENC_R GP5",
-                                   "~rising-edge IRQ in the IO_BANK0 ISR",
-                                   "~Motion task @ 50 Hz \u2022 drv_encoder"], DEV_FILL, DEV_EDGE),
-    ("GROVE 4", "HC-SR04 ultrasonic", ["TRIG GP16 / ECHO GP17", "ECHO is 5 V \u2014 needs 1k/2k divider",
-                                       "~TIMER alarms end TRIG and time out ECHO",
-                                       "~Scan task \u2022 drv_ultrasonic"], WARN_FILL, WARN_EDGE),
-    ("GROVE 5", "IR line sensor \u2014 left", ["ST188 / TCRT5000 reflective module", "DOUT \u2192 GP6",
-                                               "~polled by the Sense task @ 200 Hz",
-                                               "~drv_ir \u2022 sub_line"], DEV_FILL, DEV_EDGE),
-    ("GROVE 6", "IR barcode sensor", ["AOUT \u2192 GP26 (ADC0)", "DOUT \u2192 GP27, both-edge IRQ",
-                                      "~every edge timestamped in the ISR",
-                                      "~bar/space widths \u2192 Code 39 \u2022 sub_barcode"], DEV_FILL, DEV_EDGE),
-]
-
-bw_, gap = 370, 22
-x = (W - (5 * bw_ + 4 * gap)) / 2
-for port, title, lines, fl, eg in bottom:
-    devbox(x, 1128, x + bw_, 1300, title, lines, fill=fl, edge=eg)
-    ax, ay = grove_anchor[port]
-    lead([(ax, ay), (ax, 1100), (x + bw_ / 2, 1100), (x + bw_ / 2, 1128)])
-    x += bw_ + gap
-
-# ================================================================= notes
-ny = 1332
-d.text((60, ny), "Conflicts handled (details in docs/HARDWARE.md \u00a71):", font=F_NOTEB, fill=INK)
-ny += 32
+# ----------------------------------------------------------------- notes
+ny = TOP + ROWS * ROW_H + 52
+d.text((70, ny), "Conflicts handled (full detail in docs/HARDWARE.md \u00a71):", font=F_NOTEB, fill=INK)
+ny += 33
 notes = [
-    "1.  I\u00b2C1 re-pinned from GP6/GP7 to GP2/GP3 in the port's i2c_rp2040.c \u2014 the stock mapping collides with the two IR line sensors, "
-    "and I\u00b2C0's GP8/GP9 are the left motor.",
-    "2.  BOARD_LED_PIN moved from GP16 to GP19 in sysdef.h \u2014 GP16 is the ultrasonic TRIG. The Pico W's on-board LED is wired to the "
-    "CYW43439 radio, not to an RP2040 pin, so an external LED is required.",
-    "3.  HC-SR04 ECHO outputs 5 V and the RP2040 is not 5 V tolerant \u2014 1 k\u03a9 from ECHO to GP17 and 2 k\u03a9 from GP17 to GND (3.33 V at the pin). "
+    "1.  GP2 / GP3 \u2014 the port's I\u00b2C1 driver defaults to GP6/GP7, which are the two IR line sensors, and I\u00b2C0 defaults to GP8/GP9, which are the left motor. "
+    "I\u00b2C1 is re-pinned to GP2/GP3 in i2c_rp2040.c.",
+    "2.  GP16 / GP19 \u2014 the port defaults BOARD_LED_PIN to GP16, which this project needs for the ultrasonic TRIG, so it is moved to GP19 in sysdef.h. "
+    "The Pico W's on-board LED is wired to the CYW43439 radio rather than to an RP2040 pin, so an external LED is required.",
+    "3.  GP17 \u2014 the HC-SR04 ECHO line idles at 5 V and the RP2040 is not 5 V tolerant. Fit 1 k\u03a9 from ECHO to GP17 and 2 k\u03a9 from GP17 to GND (3.33 V at the pin). "
     "Connecting it directly destroys the board.",
-    "4.  The Robo Pico silkscreen carries GP26 on BOTH Grove 5 and Grove 6 \u2014 verify against your own board before cabling, and keep the "
-    "barcode sensor's ADC pin clear of whatever shares Grove 5.",
-    "5.  PWM slices 4, 5 and 6 are taken by the motors and the servo, so the kernel's PWM-based StartPhysicalTimer cannot use them. "
+    "4.  GP26 \u2014 the Robo Pico silkscreen carries GP26 on BOTH Grove 5 and Grove 6. Grove 5 also carries GP6 (line sensor L), so make sure nothing on Grove 5 drives GP26 "
+    "or it will fight the barcode sensor's analogue output.",
+    "5.  PWM slices 4, 5 and 6 are consumed by the two motors and the scan servo, so the kernel's PWM-based StartPhysicalTimer cannot use them. "
     "This tree uses the RP2040 TIMER alarms instead, which the kernel never touches.",
 ]
+def wrap(text, f, maxw):
+    words, lines, cur = text.split(" "), [], ""
+    for wd in words:
+        trial = (cur + " " + wd).strip()
+        if tw(trial, f) <= maxw:
+            cur = trial
+        else:
+            lines.append(cur)
+            cur = wd
+    if cur:
+        lines.append(cur)
+    return lines
+
+
 for n in notes:
-    d.text((60, ny), n, font=F_NOTE, fill=MUTED)
-    ny += 30
+    for k, ln in enumerate(wrap(n, F_NOTE, W - 70 - 80)):
+        d.text((70 if k == 0 else 104, ny), ln, font=F_NOTE, fill=MUTED)
+        ny += 29
+    ny += 3
 
 ny += 6
-d.text((60, ny),
-       "Grove 1 sits on the left edge and Grove 7 on the right edge; Grove 2\u20136 run along the bottom edge. "
-       "Every GPIO number above is defined once in core/rc_config.h and nowhere else.",
-       font=F_NOTE, fill=INK)
+for ln in wrap("Pin numbers are the physical Pico header positions, which the Robo Pico re-exposes on its breakout headers "
+               "and routes to its Grove, motor and servo connectors. For where each device physically plugs in, see the "
+               "board-level view in robopico_board_view.png.", F_NOTE, W - 150):
+    d.text((70, ny), ln, font=F_NOTE, fill=INK)
+    ny += 29
 
-# ================================================================= output
+# ----------------------------------------------------------------- output
 here = os.path.dirname(os.path.abspath(__file__))
 root = os.path.abspath(os.path.join(here, "..", "..", ".."))
 out1 = os.path.join(here, "robopico_pin_map.png")
