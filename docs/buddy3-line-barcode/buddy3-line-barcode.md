@@ -5,6 +5,13 @@
 > (§2.1–2.2), the `core/` toolbox (§2.3) and the shared hardware (§3) — is
 > in [`TEAM_GUIDE.md`](../../TEAM_GUIDE.md); every `§` below points there.
 > Installing, building, flashing and testing is [`BUILD.md`](../../BUILD.md).
+>
+> **Datasheets for your parts** sit in this folder:
+> - [`Infrared-Reflective-Sensor-UserManual.pdf`](Infrared-Reflective-Sensor-UserManual.pdf) — the IR module: pinout, trim pot, DO/AO behaviour
+> - [`tcrt5000.pdf`](tcrt5000.pdf) — the TCRT5000 sensor element itself
+> - [`LM393-D.PDF`](LM393-D.PDF) — the LM393 comparator that produces DO
+> - [`Barcode & Line Specification.pdf`](Barcode%20&%20Line%20Specification.pdf) — the track: line width and the Code 39 barcode layout
+> - [`Barcode Sample.pdf`](Barcode%20Sample.pdf) — a printable sample barcode for testing
 
 **Files:** `subsystems/sub_line.c/.h`, `subsystems/sub_barcode.c/.h`,
 `drivers/drv_ir.c/.h`

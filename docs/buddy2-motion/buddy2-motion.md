@@ -5,6 +5,9 @@
 > (§2.1–2.2), the `core/` toolbox (§2.3) and the shared hardware (§3) — is
 > in [`TEAM_GUIDE.md`](../../TEAM_GUIDE.md); every `§` below points there.
 > Installing, building, flashing and testing is [`BUILD.md`](../../BUILD.md).
+>
+> The TT motor and the encoder have no formal datasheet; the Robo Pico
+> motor-driver details are in [`docs/Robo_Pico.pdf`](../Robo_Pico.pdf).
 
 **Files:** `subsystems/sub_motion.c` / `.h`, `drivers/drv_motor.c` / `.h`,
 `drivers/drv_encoder.c` / `.h`

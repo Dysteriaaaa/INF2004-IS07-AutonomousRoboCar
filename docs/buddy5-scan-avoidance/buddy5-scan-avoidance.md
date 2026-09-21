@@ -5,6 +5,9 @@
 > (§2.1–2.2), the `core/` toolbox (§2.3) and the shared hardware (§3) — is
 > in [`TEAM_GUIDE.md`](../../TEAM_GUIDE.md); every `§` below points there.
 > Installing, building, flashing and testing is [`BUILD.md`](../../BUILD.md).
+>
+> **Datasheets for your parts** sit in this folder:
+> - [`HCSR04.pdf`](HCSR04.pdf) — the HC-SR04 ranger — timing, 5 V Echo, range limits
 
 **Files:** `subsystems/sub_scan.c/.h`, `drivers/drv_ultrasonic.c/.h`,
 `drivers/drv_servo.c/.h`

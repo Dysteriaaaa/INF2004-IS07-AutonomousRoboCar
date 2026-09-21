@@ -130,8 +130,8 @@ Both are generated — edit the scripts, never the PNGs, then re-run:
 
 | Script | Output | Copy for the design review |
 |---|---|---|
-| `docs/img/hw/gen_pin_map.py` | `robopico_pin_map.png` | `docs/week6_diagrams/d2_pin_layout.png` |
-| `docs/img/hw/gen_board_view.py` | `robopico_board_view.png` | `docs/week6_diagrams/d2b_board_view.png` |
+| `docs/img/hw/gen_pin_map.py` | `robopico_pin_map.png` | `docs/img/week6/d2_pin_layout.png` |
+| `docs/img/hw/gen_board_view.py` | `robopico_board_view.png` | `docs/img/week6/d2b_board_view.png` |
 
 Slice number is `(GPIO >> 1) & 7`. Grove port numbers are from the Robo Pico
 datasheet.
@@ -198,7 +198,7 @@ Two consequences worth planning around:
 
 ## 4. Per-buddy hardware, wiring and drivers
 
-Each buddy's guide in `docs/guide/` repeats their own wiring as a
+Each buddy's guide in `docs/buddyN-…/` repeats their own wiring as a
 pin-by-pin table ("Your hardware"); this section is the engineering
 detail behind those tables.
 
@@ -207,7 +207,7 @@ detail behind those tables.
 **Hardware:** none beyond the Pico W's built-in CYW43439.
 
 **The problem you need to know about up front.** The port's own
-`docs/PORT_RP2040.md` is explicit:
+`external/mtk3smp-rp2040/docs/PORT_RP2040.md` is explicit:
 
 - WiFi and lwIP (DHCP, DNS, UDP, TCP) exist as `WIFI_*` build knobs, are
   described as a **development profile**, and are **not part of the qualified
@@ -522,7 +522,7 @@ hit will be your bug rather than a cross-core one.
 
 ## 6. SMP rules, if you go dual-core
 
-Taken from the port's `PORT_RP2040.md`. These are qualification boundaries,
+Taken from the port's `external/mtk3smp-rp2040/docs/PORT_RP2040.md`. These are qualification boundaries,
 not tuning advice.
 
 1. **SIO hardware spinlocks 0–2 are kernel-reserved.** Do not claim them.

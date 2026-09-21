@@ -14,7 +14,7 @@ core/         event bus, timebase, GPIO interrupt mux, PWM helper
 drivers/      one module per physical device
 subsystems/   one module per buddy, plus the mission state machine
 app/          usermain and the housekeeping tasks
-docs/         HARDWARE.md (engineering reference), guide/ (one guide per buddy)
+docs/         HARDWARE.md (engineering reference), buddyN-…/ (guide + datasheets per buddy), report/
 TEAM_GUIDE.md shared code + hardware, for the team
 BUILD.md      install, build, flash, test - step by step
 ```

@@ -5,6 +5,9 @@
 > (§2.1–2.2), the `core/` toolbox (§2.3) and the shared hardware (§3) — is
 > in [`TEAM_GUIDE.md`](../../TEAM_GUIDE.md); every `§` below points there.
 > Installing, building, flashing and testing is [`BUILD.md`](../../BUILD.md).
+>
+> **Datasheets for your parts** sit in this folder:
+> - [`RP-008312-DS-2-pico-w-datasheet.pdf`](RP-008312-DS-2-pico-w-datasheet.pdf) — Pico W datasheet — the CYW43439 WiFi module and its on-board wiring
 
 ## Your hardware — nothing to wire
 

@@ -5,6 +5,10 @@
 > (§2.1–2.2), the `core/` toolbox (§2.3) and the shared hardware (§3) — is
 > in [`TEAM_GUIDE.md`](../../TEAM_GUIDE.md); every `§` below points there.
 > Installing, building, flashing and testing is [`BUILD.md`](../../BUILD.md).
+>
+> **Datasheets for your parts** sit in this folder:
+> - [`lsm303dlhc.pdf`](lsm303dlhc.pdf) — the LSM303DLHC chip — registers, scaling, I²C addresses
+> - [`OKY3231-2.pdf`](OKY3231-2.pdf) — the GY-511 / OKY3231-2 breakout board
 
 **Files:** `subsystems/sub_terrain.c/.h`, `drivers/drv_imu.c/.h`
 

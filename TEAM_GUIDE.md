@@ -6,7 +6,7 @@ Three guides, three jobs:
 |---|---|
 | **This file** | how the code is organised, the code *everyone* runs on (`core/`, `app/`, `sub_nav.c`), the shared hardware, and who owns which part |
 | [`BUILD.md`](BUILD.md) | how to install the tools, build, flash, watch the console, and test each part — every step, in VS Code |
-| [`docs/guide/buddyN-….md`](docs/guide/) | *your* part: your hardware wired pin by pin, your code explained line by line, your TODOs |
+| [`docs/buddyN-…/buddyN-….md`](docs/) | *your* part: your hardware wired pin by pin, your code explained line by line, your TODOs — with your parts' datasheets in the same folder |
 
 Everything is written for someone who has **never used a Raspberry Pi
 Pico, never written C and never done any IoT**. Words are defined the first
@@ -702,12 +702,12 @@ patch that moves the LED to GP19 hasn't been applied (run the setup task,
 | Cytron Robo Pico carrier board | 1 | **shared** | — (everything plugs into it) | §3.2 |
 | Single-cell LiPo battery | 1 | **shared** | Robo Pico LiPo socket | §3.2 |
 | Chassis, wheels, castor, Grove cables, status LED | — | **shared** | see `docs/HARDWARE.md` §8; status LED wiring in §3.4 | — |
-| DC gear motor + wheel | 2 | **Buddy 2** | Left → MOTOR 2 terminal (GP10/GP11), right → MOTOR 1 terminal (GP8/GP9) | [Buddy 2](docs/guide/buddy2-motion.md) |
-| Wheel encoder, two-channel A/B | 2 | **Buddy 2** | Grove 1 → GP0/GP1 (left), Grove 7 → GP7/GP28 (right) | [Buddy 2](docs/guide/buddy2-motion.md) |
-| MH-Sensor-Series IR module (TCRT5000 + LM393) | 3 | **Buddy 3** | Grove 4 → GP16, Grove 5 → GP6 (line); Grove 6 → GP27 + GP26/ADC0 (barcode) | [Buddy 3](docs/guide/buddy3-line-barcode.md) |
-| GY-511 breakout (LSM303DLHC accel + magnetometer) | 1 | **Buddy 4** | Grove 3 → I2C0 on GP4 (SDA) / GP5 (SCL) | [Buddy 4](docs/guide/buddy4-imu-terrain.md) |
-| HC-SR04 ultrasonic ranger | 1 | **Buddy 5** | Grove 2 → GP2 (TRIG), GP3 (ECHO via divider) | [Buddy 5](docs/guide/buddy5-scan-avoidance.md) |
-| SG90-class servo + pan bracket | 1 | **Buddy 5** | Robo Pico servo port 4 (GP15) | [Buddy 5](docs/guide/buddy5-scan-avoidance.md) |
+| DC gear motor + wheel | 2 | **Buddy 2** | Left → MOTOR 2 terminal (GP10/GP11), right → MOTOR 1 terminal (GP8/GP9) | [Buddy 2](docs/buddy2-motion/buddy2-motion.md) |
+| Wheel encoder, two-channel A/B | 2 | **Buddy 2** | Grove 1 → GP0/GP1 (left), Grove 7 → GP7/GP28 (right) | [Buddy 2](docs/buddy2-motion/buddy2-motion.md) |
+| MH-Sensor-Series IR module (TCRT5000 + LM393) | 3 | **Buddy 3** | Grove 4 → GP16, Grove 5 → GP6 (line); Grove 6 → GP27 + GP26/ADC0 (barcode) | [Buddy 3](docs/buddy3-line-barcode/buddy3-line-barcode.md) |
+| GY-511 breakout (LSM303DLHC accel + magnetometer) | 1 | **Buddy 4** | Grove 3 → I2C0 on GP4 (SDA) / GP5 (SCL) | [Buddy 4](docs/buddy4-imu-terrain/buddy4-imu-terrain.md) |
+| HC-SR04 ultrasonic ranger | 1 | **Buddy 5** | Grove 2 → GP2 (TRIG), GP3 (ECHO via divider) | [Buddy 5](docs/buddy5-scan-avoidance/buddy5-scan-avoidance.md) |
+| SG90-class servo + pan bracket | 1 | **Buddy 5** | Robo Pico servo port 4 (GP15) | [Buddy 5](docs/buddy5-scan-avoidance/buddy5-scan-avoidance.md) |
 | 1 kΩ + 2 kΩ resistors (ECHO divider) | 1 each | **Buddy 5** | inline on the ECHO wire | — |
 | WiFi radio (CYW43439, on the Pico W itself) | — | **Buddy 1** | nothing to wire | §3.2 |
 
@@ -726,11 +726,11 @@ patch that moves the LED to GP19 hasn't been applied (run the setup task,
 
 | Buddy | Guide | Files you own | You're building |
 |---|---|---|---|
-| 1 | [`docs/guide/buddy1-telemetry.md`](docs/guide/buddy1-telemetry.md) | `subsystems/sub_telemetry.*` | reporting the car's status over WiFi (and receiving commands) |
-| 2 | [`docs/guide/buddy2-motion.md`](docs/guide/buddy2-motion.md) | `subsystems/sub_motion.*`, `drivers/drv_motor.*`, `drivers/drv_encoder.*` | making the wheels move the right speed, distance and angle |
-| 3 | [`docs/guide/buddy3-line-barcode.md`](docs/guide/buddy3-line-barcode.md) | `subsystems/sub_line.*`, `subsystems/sub_barcode.*`, `drivers/drv_ir.*` | staying on the black line, reading barcodes |
-| 4 | [`docs/guide/buddy4-imu-terrain.md`](docs/guide/buddy4-imu-terrain.md) | `subsystems/sub_terrain.*`, `drivers/drv_imu.*` | detecting speed humps, classifying how the car is moving |
-| 5 | [`docs/guide/buddy5-scan-avoidance.md`](docs/guide/buddy5-scan-avoidance.md) | `subsystems/sub_scan.*`, `drivers/drv_ultrasonic.*`, `drivers/drv_servo.*` | scanning for obstacles and planning a way round them |
+| 1 | [`docs/buddy1-telemetry/buddy1-telemetry.md`](docs/buddy1-telemetry/buddy1-telemetry.md) | `subsystems/sub_telemetry.*` | reporting the car's status over WiFi (and receiving commands) |
+| 2 | [`docs/buddy2-motion/buddy2-motion.md`](docs/buddy2-motion/buddy2-motion.md) | `subsystems/sub_motion.*`, `drivers/drv_motor.*`, `drivers/drv_encoder.*` | making the wheels move the right speed, distance and angle |
+| 3 | [`docs/buddy3-line-barcode/buddy3-line-barcode.md`](docs/buddy3-line-barcode/buddy3-line-barcode.md) | `subsystems/sub_line.*`, `subsystems/sub_barcode.*`, `drivers/drv_ir.*` | staying on the black line, reading barcodes |
+| 4 | [`docs/buddy4-imu-terrain/buddy4-imu-terrain.md`](docs/buddy4-imu-terrain/buddy4-imu-terrain.md) | `subsystems/sub_terrain.*`, `drivers/drv_imu.*` | detecting speed humps, classifying how the car is moving |
+| 5 | [`docs/buddy5-scan-avoidance/buddy5-scan-avoidance.md`](docs/buddy5-scan-avoidance/buddy5-scan-avoidance.md) | `subsystems/sub_scan.*`, `drivers/drv_ultrasonic.*`, `drivers/drv_servo.*` | scanning for obstacles and planning a way round them |
 
 Each guide has the same shape: **your hardware, wired pin by pin** → **run
 your module** (pointing at the matching bench in `BUILD.md`) → **how to get

@@ -15,7 +15,7 @@ design review.
 
 Run:  python docs/img/hw/gen_pin_map.py
 Out:  docs/img/hw/robopico_board_view.png
-      docs/week6_diagrams/d2b_board_view.png (copy, for the Word doc)
+      docs/img/week6/d2b_board_view.png (copy, for the Word doc)
 """
 
 import os
@@ -364,7 +364,7 @@ out1 = os.path.join(here, "robopico_board_view.png")
 img.save(out1)
 print("wrote", out1)
 
-out2 = os.path.join(root, "docs", "week6_diagrams", "d2b_board_view.png")
+out2 = os.path.join(root, "docs", "img", "week6", "d2b_board_view.png")
 if os.path.isdir(os.path.dirname(out2)):
     img.save(out2)
     print("wrote", out2)

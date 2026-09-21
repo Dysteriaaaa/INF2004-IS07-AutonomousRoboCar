@@ -15,7 +15,7 @@ The other two guides:
 
 - [`TEAM_GUIDE.md`](TEAM_GUIDE.md) — how the code is organised, the shared
   code everyone runs on, the shared hardware and who owns which part.
-- [`docs/guide/`](docs/guide/) — one file per buddy: your hardware, your
+- [`docs/buddyN-…/`](docs/) — one folder per buddy (guide + datasheets): your hardware, your
   wiring, your code explained line by line, your TODOs.
 
 ---

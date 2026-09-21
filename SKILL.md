@@ -50,9 +50,13 @@ core/         event bus, timebase, GPIO interrupt mux, PWM, bottom halves
 drivers/      one module per physical device
 subsystems/   one module per team member, plus the mission state machine
 app/          usermain and housekeeping tasks
-docs/         HARDWARE.md - read this for wiring and setup
-              img/hw/ - pin map diagram + the script that generates it
-              datasheets, the Week 6 design review (.docx) and week6_diagrams/
+docs/         HARDWARE.md (wiring/setup reference) and Robo_Pico.pdf (shared board datasheet)
+              buddyN-<name>/ - one folder per buddy: the guide .md plus that
+                buddy's own datasheets (buddy3 = IR/LM393/TCRT5000 + barcode spec,
+                buddy4 = LSM303DLHC/OKY3231-2, buddy5 = HC-SR04, buddy1 = Pico W)
+              img/hw/ - part photos, pin map diagrams + the scripts that generate them
+              img/week6/ - the Week 6 report figures (d2 pin layout ... d6 sequences)
+              report/ - Week 6 design review (.docx), its template, the project brief
 build/        setup.sh / build.sh / flash.sh, robocar.mk (the makefile hook),
               patch_port.py (board patches); build/out/ holds the .uf2 images
 external/     mtk3smp-rp2040 kernel port as a pinned git submodule
@@ -60,8 +64,6 @@ TEAM_GUIDE.md - shared guide: big picture, shared code (app_main, sub_nav,
                core/ toolbox, bench harness), shared hardware, pin map, ownership
 BUILD.md      - install -> clone -> setup -> build -> flash -> test, every step,
                VS Code Pico extension first; §5 = one bench per buddy + mission
-docs/guide/   one file per buddy (buddy1-telemetry.md ... buddy5-scan-avoidance.md):
-               own code line by line, own hardware wired pin by pin, TODOs
 .vscode/      tasks.json (build/flash as VS Code tasks via Git Bash),
                settings.json (Git Bash as the workspace terminal)
 ```
@@ -77,7 +79,7 @@ the PNGs, and re-run them:
 Board geometry and port assignments came from the Cytron Robo Pico datasheet
 in `docs/Robo_Pico.pdf` (its text is glyph-encoded, so the board images
 have to be extracted and read); signal assignments come from
-`core/rc_config.h` and section 2 of the Week 6 design review. Facts worth
+`core/rc_config.h` and section 2 of the Week 6 design review (`docs/report/`). Facts worth
 keeping: the Robo Pico has **seven** Grove ports (1 on the left edge, 7 on
 the right edge, 2-6 along the bottom); the silkscreen carries **GP26 on both
 Grove 5 and Grove 6**, so line sensor 2 on Grove 5 must have only its DO wire
@@ -101,7 +103,7 @@ embedded background, and the split is deliberate - keep it when editing:
   non-blocking rule), §2 shared code line by line (`app_main.c`, `sub_nav.c`,
   `core/` toolbox, bench harness), §3 shared hardware (kit, pin map, status
   LED, ownership table), §4 links to the buddy guides, §5 team rules.
-- `docs/guide/buddyN-*.md` = what is *individual*: that buddy's code
+- `docs/buddyN-*/buddyN-*.md` = what is *individual*: that buddy's code
   function by function, their hardware with a "Your hardware - wiring, pin
   by pin" section (which sensor pin goes to which Grove/terminal label), a
   pointer to their bench in `BUILD.md`, and TODOs. `§N.x` references in
