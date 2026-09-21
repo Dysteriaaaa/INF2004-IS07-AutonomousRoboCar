@@ -15,8 +15,8 @@
  *  so that pins which must share a frequency land on the same slice.
  *
  *  Slice = (gpio >> 1) & 7:
- *     GP8/GP9   slice 4   left motor,  both channels, same frequency
- *     GP10/GP11 slice 5   right motor, both channels, same frequency
+ *     GP8/GP9   slice 4   right motor (MOTOR 1), both channels, same frequency
+ *     GP10/GP11 slice 5   left motor  (MOTOR 2), both channels, same frequency
  *     GP14/GP15 slice 7   scan servo on GP15 (servo port 4) at 50 Hz
  *
  *  Slices 4, 5 and 7 are therefore unavailable to StartPhysicalTimer,

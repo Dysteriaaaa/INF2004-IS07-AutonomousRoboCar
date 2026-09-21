@@ -171,13 +171,13 @@ box(bx(0.19), by(0.02), bx(0.30), by(0.11), "#c8e6c9", "#2e7d32", r=5)
 ctext(bx(0.245), by(0.035), "VIN", F_PORT, "#2e7d32")
 ctext(bx(0.245), by(0.070), "3.6-6 V", F_TINY, "#2e7d32")
 
-# MOTOR 2 terminal (right motor: M2B = GP11, M2A = GP10)
+# MOTOR 2 terminal (left motor: M2B = GP11, M2A = GP10)
 box(bx(0.35), by(0.025), bx(0.49), by(0.125), USED_FILL, USED_EDGE, r=5)
 ctext(bx(0.42), by(0.035), "MOTOR 2", F_PORT, USED_EDGE)
 ctext(bx(0.42), by(0.072), "M2B  M2A", F_TINY, USED_EDGE)
 ctext(bx(0.42), by(0.096), "GP11  GP10", F_PIN, USED_EDGE)
 
-# MOTOR 1 terminal (left motor: M1B = GP9, M1A = GP8)
+# MOTOR 1 terminal (right motor: M1B = GP9, M1A = GP8)
 box(bx(0.545), by(0.025), bx(0.685), by(0.125), USED_FILL, USED_EDGE, r=5)
 ctext(bx(0.615), by(0.035), "MOTOR 1", F_PORT, USED_EDGE)
 ctext(bx(0.615), by(0.072), "M1B  M1A", F_TINY, USED_EDGE)
@@ -259,11 +259,11 @@ devbox(300, 196, 660, 356, "Power input",
        ["LiPo 1S or Vin 3.6\u20136 V", "~3V3 rail: 300 mA total to Grove ports",
         "~motors + servo share the pack \u2014", "~add 470 \u00b5F if the servo browns out"])
 
-devbox(700, 196, 960, 356, "Right motor",
+devbox(700, 196, 960, 356, "Left motor",
        ["DC gear motor + wheel", "M2A GP10 / M2B GP11", "~PWM slice 5 ch A/B, 20 kHz",
         "~drv_motor \u2022 Motion task"])
 
-devbox(980, 196, 1240, 356, "Left motor",
+devbox(980, 196, 1240, 356, "Right motor",
        ["DC gear motor + wheel", "M1A GP8 / M1B GP9", "~PWM slice 4 ch A/B, 20 kHz",
         "~drv_motor \u2022 Motion task"])
 

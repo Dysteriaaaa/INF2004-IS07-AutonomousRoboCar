@@ -83,7 +83,7 @@ Current wiring, one Grove cable per device: Grove 1 = left encoder A/B
 (GP0/GP1), Grove 2 = HC-SR04 TRIG/ECHO (GP2/GP3), Grove 3 = IMU on I²C0
 (SDA GP4 / SCL GP5), Grove 4 = line sensor 1 DO (GP16), Grove 5 = line
 sensor 2 DO (GP6), Grove 6 = barcode AO/DO (GP26/GP27), Grove 7 = right
-encoder A/B (GP7/GP28). Motors on M1 (GP8/GP9) and M2 (GP10/GP11), scan
+encoder A/B (GP7/GP28). Right motor on M1 (GP8/GP9), left motor on M2 (GP10/GP11), scan
 servo on servo port 4 (GP15), status LED on GP19. Buzzer, buttons and UART
 are unused.
 
@@ -242,7 +242,7 @@ These are in `docs/HARDWARE.md` in full. Summary:
 
 | Conflict | Resolution |
 |---|---|
-| Stock I²C driver hardcodes **I²C0 to GP8/GP9**, which are the left motor pins | The IMU is on Grove 3 (GP4/GP5), which is I²C0 in silicon; patch the **unit-0** pin table from GP8/GP9 to **GP4/GP5** and open `"iica"`. SDA is GP4, SCL is GP5 |
+| Stock I²C driver hardcodes **I²C0 to GP8/GP9**, which are the right motor (MOTOR 1) pins | The IMU is on Grove 3 (GP4/GP5), which is I²C0 in silicon; patch the **unit-0** pin table from GP8/GP9 to **GP4/GP5** and open `"iica"`. SDA is GP4, SCL is GP5 |
 | Port defaults `BOARD_LED_PIN` to **GP16**, which is line sensor 1 | Change it to GP19 in `sysdef.h`; the Pico W's on-board LED is on the radio, not an RP2040 pin |
 | Port's default console is **UART0 on GP0/GP1**, which is the left encoder | Build with `CONSOLE=usb_cdc`; the console rides the Pico's own USB port |
 | Kernel's physical timer is built on the **PWM block** | Slices 4, 5, 7 are taken by motors and the servo. This tree uses RP2040 TIMER alarms instead, which the kernel does not touch |

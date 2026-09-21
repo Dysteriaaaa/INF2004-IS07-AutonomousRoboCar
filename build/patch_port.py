@@ -8,7 +8,7 @@ in docs/HARDWARE.md section 1.
 
     1. BOARD_LED_PIN 16 -> 19            GP16 is line sensor 1
     2. Boot pin table (hw_setting.c)      GP0/GP1 no longer muxed to UART0 (left encoder)
-                                          I2C0 pins GP8/GP9 -> GP4/GP5   (motor pins vs Grove 3)
+                                          I2C0 pins GP8/GP9 -> GP4/GP5   (MOTOR 1 pins vs Grove 3)
                                           GP27/GP28 no longer parked as ADC (barcode DO, right encoder B)
     3. I2C driver pin table               unit 0 GP8/GP9 -> GP4/GP5, same reason
     4. TM_CONSOLE_UART 1 -> 0             no UART0 mirror; the console is USB CDC only
@@ -77,7 +77,7 @@ patch("kernel/sysdepend/pico_rp2040/hw_setting.c",
       "\t/* P9 : I2C0_SCL */\n"
       "\t{GPIO_CTRL(9),\tGPIO_CTRL_FUNCSEL_I2C},\n"
       "\t{GPIO(9), GPIO_IE | GPIO_DRIVE_4MA | GPIO_PUE | GPIO_SHEMITT},\t/* Pull-up */\n",
-      "\t/* P4 : I2C0_SDA (Robo Pico Grove 3; GP8/GP9 are the left motor) */\n"
+      "\t/* P4 : I2C0_SDA (Robo Pico Grove 3; GP8/GP9 are the right motor) */\n"
       "\t{GPIO_CTRL(4),\tGPIO_CTRL_FUNCSEL_I2C},\n"
       "\t{GPIO(4), GPIO_IE | GPIO_DRIVE_4MA | GPIO_PUE | GPIO_SHEMITT},\t/* Pull-up */\n"
       "\n"
@@ -92,7 +92,7 @@ patch("device/i2c/sysdepend/rp2040/i2c_rp2040.c",
       "\t\tout_w(GPIO(8), GPIO_IE | GPIO_DRIVE_4MA | GPIO_PUE | GPIO_SHEMITT);\n"
       "\t\tout_w(GPIO_CTRL(9), GPIO_CTRL_FUNCSEL_I2C);\n"
       "\t\tout_w(GPIO(9), GPIO_IE | GPIO_DRIVE_4MA | GPIO_PUE | GPIO_SHEMITT);\n",
-      "\t\t/* Robo Pico Grove 3: GP4/GP5. GP8/GP9 are the left motor. */\n"
+      "\t\t/* Robo Pico Grove 3: GP4/GP5. GP8/GP9 are the right motor. */\n"
       "\t\tout_w(GPIO_CTRL(4), GPIO_CTRL_FUNCSEL_I2C);\n"
       "\t\tout_w(GPIO(4), GPIO_IE | GPIO_DRIVE_4MA | GPIO_PUE | GPIO_SHEMITT);\n"
       "\t\tout_w(GPIO_CTRL(5), GPIO_CTRL_FUNCSEL_I2C);\n"

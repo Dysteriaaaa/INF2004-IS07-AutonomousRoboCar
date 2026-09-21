@@ -128,12 +128,6 @@ def vtext(text, f, fill, bg, ccw=True):
 
 DEV_O = "#2f6b1c"   # outline of an in-use device chip
 
-# ================================================================= title
-d.text((60, 40), "Robo Pico \u2014 Pin Map, INF2004-IS07", font=F_TITLE, fill="#1a1a1a")
-d.text((60, 92), "The Cytron Robo Pico as wired for this car. Chips fan out from each connector: GPIO (green), function in use, "
-                 "and the device on that socket. Faded = on the board but not used.", font=F_SUB, fill="#666666")
-d.text((60, 120), "Every Grove socket carries GND, 3V3 and two signals, so each sensor is one Grove cable. Motors go to the screw terminals, "
-                  "the servo to the servo header, the console is the Pico's USB.", font=F_SUB, fill="#666666")
 
 # ================================================================= the board
 d.rounded_rectangle([BX0, BY0, BX0 + BW, BY0 + BH], radius=30, fill=PCB, outline=PCB_E, width=4)
@@ -275,11 +269,11 @@ def motor_rows(x1, y, side_name, pins):
 
 # MOTOR 2 (right motor), lowest stack, right-aligned to its terminal
 m2x = bx(0.42)
-motor_rows(m2x + 40, 385, "Right motor", (("M2A", "GP10", "PWM 5A", "+"), ("M2B", "GP11", "PWM 5B", "\u2212")))
+motor_rows(m2x + 40, 385, "Left motor", (("M2A", "GP10", "PWM 5A", "+"), ("M2B", "GP11", "PWM 5B", "\u2212")))
 lead([(m2x + 40, 385 + CH / 2 + 4), (m2x + 40, 445), (m2x, 445), (m2x, by(0.025))])
 # MOTOR 1 (left motor), above it
 m1x = bx(0.615)
-motor_rows(m1x + 40, 275, "Left motor", (("M1A", "GP8", "PWM 4A", "+"), ("M1B", "GP9", "PWM 4B", "\u2212")))
+motor_rows(m1x + 40, 275, "Right motor", (("M1A", "GP8", "PWM 4A", "+"), ("M1B", "GP9", "PWM 4B", "\u2212")))
 lead([(m1x + 40, 275 + CH / 2 + 4), (m1x + 40, 327), (m1x, 327), (m1x, by(0.025))])
 # SERVO port 4, top right, left-aligned
 sx = bx(0.808 + 3 * 0.036)
@@ -308,18 +302,10 @@ row(BX0 + BW + 60, g7y - 44, [("GP7", C_GP, GP_W, "#1e3a10"), ("Right encoder A 
 row(BX0 + BW + 60, g7y,      [("GP28", C_GP, GP_W, "#1e3a10"), ("Right encoder B  (direction)", C_DEV, 268, DEV_O)])
 row(BX0 + BW + 60, g7y + 44, [("GROVE 7", C_PORT, 106, None), ("3V3", C_PWR, 60, None), ("encoder GND", C_GND, 130, None)])
 lead([(BX0 + BW + 22, g7y), (BX0 + BW + 52, g7y)])
-row(BX0 + BW + 60, by(0.455), [("GP22", C_GP, GP_W, None), ("piezo buzzer \u2014 unused", C_SPARE, 236, None)], faded=True)
-lead([(bx(0.975), by(0.455)), (BX0 + BW + 52, by(0.455))])
-row(BX0 + BW + 60, by(0.7225), [("GP18", C_GP, GP_W, None), ("2 \u00d7 RGB LED \u2014 unused", C_SPARE, 236, None)], faded=True)
-lead([(bx(0.975), by(0.7225)), (BX0 + BW + 52, by(0.7225))])
-row(BX0 + BW + 60, by(0.7225) + 44, [("GP20 GP21", C_GP, 110, None), ("user buttons \u2014 unused", C_SPARE, 236, None)], faded=True)
 # status LED off the top header (GP19 is the 16th pin)
 gp19x = HX0 + 15.5 * (HX1 - HX0) / 20
 row(BX0 + BW + 60, by(0.215), [("GP19", C_GP, GP_W, "#1e3a10"), ("Status LED + 330 \u03a9  (20-way header pin)", C_DEV, 372, DEV_O)])
 lead([(BX0 + BW + 52, by(0.215)), (bx(0.985), by(0.215)), (bx(0.985), by(0.232)), (gp19x, by(0.232)), (gp19x, by(0.245))])
-# USB console, on the left, level with the USB connector
-row_r(BX0 - 60, by(0.455), [("USB console  (CONSOLE=usb_cdc, no UART pins)", C_DEV, 476, DEV_O)])
-lead([(BX0 - 52, by(0.455)), (bx(0.235), by(0.455))])
 
 # --- BOTTOM: Grove 2..6 columns
 COLS = {
@@ -332,7 +318,7 @@ COLS = {
     "GROVE 5": [("GP6", C_GP, "#1e3a10", None), ("Line sensor 2 (R)  DO", C_DEV, DEV_O, False),
                 ("GP26", C_GP, None, None), ("= barcode AO, leave unwired", C_SPARE, None, True)],
     "GROVE 6": [("GP26", C_GP, None, "ADC0"), ("IR barcode AO", C_DEV, DEV_O, False),
-                ("GP27", C_GP, "#1e3a10", None), ("IR barcode DO  (IRQ)", C_DEV, DEV_O, False)],
+                ("GP27", C_GP, None, "ADC1"), ("IR barcode DO  (IRQ)", C_DEV, DEV_O, False)],
 }
 COL_W, COL_PITCH = 236, 252
 for k, (name, f0, f1, pins) in enumerate(GROVES):
@@ -372,6 +358,7 @@ d.text((60, ly + 54), "Patched in the kernel port by build/setup.sh: I\u00b2C0 m
                       "(console is USB), status LED GP16\u2192GP19, GP27/28 kept digital. Detail: docs/HARDWARE.md \u00a71.", font=F_SMALL, fill="#555555")
 
 # ================================================================= output
+img = img.crop((0, 110, W, H))          # the band the title used to occupy
 here = os.path.dirname(os.path.abspath(__file__))
 root = os.path.abspath(os.path.join(here, "..", "..", ".."))
 out1 = os.path.join(here, "robopico_pin_map.png")

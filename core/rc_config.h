@@ -18,10 +18,11 @@
  *  Fixed by the Robo Pico carrier board. Do not change.
  * ------------------------------------------------------------------ */
 
-#define RC_PIN_MOTOR_L_A        (8U)    /* M1A, PWM slice 4 chan A */
-#define RC_PIN_MOTOR_L_B        (9U)    /* M1B, PWM slice 4 chan B */
-#define RC_PIN_MOTOR_R_A        (10U)   /* M2A, PWM slice 5 chan A */
-#define RC_PIN_MOTOR_R_B        (11U)   /* M2B, PWM slice 5 chan B */
+/* Left wheel on the MOTOR 2 terminal, right wheel on MOTOR 1. */
+#define RC_PIN_MOTOR_L_A        (10U)   /* M2A, PWM slice 5 chan A */
+#define RC_PIN_MOTOR_L_B        (11U)   /* M2B, PWM slice 5 chan B */
+#define RC_PIN_MOTOR_R_A        (8U)    /* M1A, PWM slice 4 chan A */
+#define RC_PIN_MOTOR_R_B        (9U)    /* M1B, PWM slice 4 chan B */
 
 /* Servo header: GP12..GP15 are servo ports 1..4. The scan servo is on
  * port 4 (GP15, PWM slice 7 chan B). Ports 1-3 are free. */
@@ -76,7 +77,7 @@
 #define RC_PIN_STATUS_LED       (19U)
 
 /* IMU on Grove 3 (GP4/GP5). Those pins are I2C0 SDA/SCL in silicon, so the
- * IMU is on I2C unit 0. The stock driver maps I2C0 to GP8/GP9 (the left
+ * IMU is on I2C unit 0. The stock driver maps I2C0 to GP8/GP9 (the right
  * motor), so its unit-0 pin table is patched to GP4/GP5. See HARDWARE.md. */
 #define RC_I2C_UNIT_IMU         (0U)
 #define RC_PIN_I2C0_SDA         (4U)

@@ -45,7 +45,7 @@ for something else:
 
 - `kernel/sysdepend/pico_rp2040/hw_setting.c` has a boot-time pin table that
   muxes **GP0/GP1 to UART0**, **GP8/GP9 to I²C0** (on Robo Pico those are
-  **M1A and M1B**, the left motor) and parks **GP26/GP27/GP28** as analogue
+  **M1A and M1B**, the right motor) and parks **GP26/GP27/GP28** as analogue
   inputs with their digital input buffers switched off.
 - `device/i2c/sysdepend/rp2040/i2c_rp2040.c` repeats the **I²C0 → GP8/GP9**
   mux when the driver is registered (`DEVCNF_I2C_SETPINFUNC`). Unit 1 would
@@ -79,8 +79,8 @@ Fix (applied by `build/setup.sh`): `BOARD_LED_PIN` in
 Any slice used for motors or servos is therefore unavailable as a physical
 timer.
 
-- Slice 4 (GP8/GP9): left motor
-- Slice 5 (GP10/GP11): right motor
+- Slice 4 (GP8/GP9): right motor (MOTOR 1)
+- Slice 5 (GP10/GP11): left motor (MOTOR 2)
 - Slice 7 (GP14/GP15): scan servo on GP15
 
 Slices 0–3 and 6 remain free. This framework does not use `StartPhysicalTimer`
@@ -146,10 +146,10 @@ datasheet.
 | GP5 | I²C0 SCL → IMU | Buddy 4 | chosen | Grove 3 |
 | GP6 | IR line sensor 2, right (DOUT) | Buddy 3 | chosen | Grove 5 pin 1. **Connect DO only**, see the note below |
 | GP7 | Right encoder A | Buddy 2 | chosen | Grove 7. Edge interrupt |
-| GP8 | Motor M1A | Buddy 2 | **board** | Slice 4A |
-| GP9 | Motor M1B | Buddy 2 | **board** | Slice 4B |
-| GP10 | Motor M2A | Buddy 2 | **board** | Slice 5A |
-| GP11 | Motor M2B | Buddy 2 | **board** | Slice 5B |
+| GP8 | Motor M1A — right wheel | Buddy 2 | **board** | Slice 4A |
+| GP9 | Motor M1B — right wheel | Buddy 2 | **board** | Slice 4B |
+| GP10 | Motor M2A — left wheel | Buddy 2 | **board** | Slice 5A |
+| GP11 | Motor M2B — left wheel | Buddy 2 | **board** | Slice 5B |
 | GP12, GP13, GP14 | Servo ports 1, 2, 3 | — | **board** | Unused |
 | GP15 | Scan servo | Buddy 5 | **board** | Servo port 4, slice 7B |
 | GP16 | IR line sensor 1, left (DOUT) | Buddy 3 | chosen | Grove 4 pin 1. See §1.3 |
@@ -254,8 +254,8 @@ via TinyUSB. No USB-serial adapter and no Grove port is used for the console.
 
 | Signal | Pin | Note |
 |---|---|---|
-| Left motor | M1 terminal | M1A = GP8, M1B = GP9 |
-| Right motor | M2 terminal | M2A = GP10, M2B = GP11 |
+| Left motor | M2 terminal | M2A = GP10, M2B = GP11 |
+| Right motor | M1 terminal | M1A = GP8, M1B = GP9 |
 | Left encoder A / B | GP0 / GP1 | Grove 1: GND, 3V3, A, B — one cable |
 | Right encoder A / B | GP7 / GP28 | Grove 7: GND, 3V3, A, B — one cable |
 

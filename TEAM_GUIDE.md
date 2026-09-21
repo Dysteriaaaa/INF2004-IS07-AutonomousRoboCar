@@ -237,7 +237,7 @@ updated). It does three things you'd otherwise have to do by hand:
 1. **Fetches the kernel port** if the submodule isn't there yet.
 2. **Patches five lines of the port** so it stops claiming pins this car
    needs. The stock port switches GP0/GP1 to a UART console (that's our
-   left encoder), GP8/GP9 to I²C (that's the left motor), parks GP27/GP28
+   left encoder), GP8/GP9 to I²C (that's the right motor), parks GP27/GP28
    as analogue inputs (barcode DO and right-encoder B), and puts the
    status LED on GP16 (line sensor 1). Each patch is explained in
    `docs/HARDWARE.md` §1 and applied by `build/patch_port.py`; running it
