@@ -355,6 +355,15 @@ same USB port as flashing.
 
 #### 0.5.7 Now bring the hardware up, one piece at a time
 
+**Before you plug in a single wire, look at the pin map diagram:**
+[`docs/img/hw/robopico_pin_map.png`](img/hw/robopico_pin_map.png). It draws
+every sensor and actuator onto a picture of the actual Robo Pico board, so
+you can see which physical socket each device goes into rather than
+translating GPIO numbers in your head. Grove 1 is on the left edge, Grove 7
+on the right edge, Grove 2–6 along the bottom, and the motor terminals and
+servo header along the top. Green means "this project uses it", amber means
+"there was a conflict here and it had to be patched — read the note".
+
 Read `docs/HARDWARE.md` §1 first — it lists **four pin/hardware conflicts
 that will each cost you a day if nobody warns you**: the I²C collision and
 LED collision from §0.5.3 above, a collision between the RTOS's internal
