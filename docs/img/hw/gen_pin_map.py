@@ -292,9 +292,6 @@ row_r(BX0 - 60, g1y - 44, [("Left encoder A  (IRQ)", C_DEV, 268, DEV_O), ("GP0",
 row_r(BX0 - 60, g1y,      [("Left encoder B  (direction)", C_DEV, 268, DEV_O), ("GP1", C_GP, GP_W, "#1e3a10")])
 row_r(BX0 - 60, g1y + 44, [("encoder GND", C_GND, 130, None), ("3V3", C_PWR, 60, None), ("GROVE 1", C_PORT, 106, None)])
 lead([(BX0 - 60 + 8, g1y), (BX0 - 22, g1y)])
-# maker port (shares GP2/GP3 with Grove 2 -> keep empty)
-row_r(BX0 - 60, by(0.91), [("MAKER port \u2014 same GP2/GP3 as Grove 2, leave empty", C_SPARE, 470, None)], faded=True)
-lead([(BX0 - 52, by(0.91)), (bx(0.045), by(0.91))])
 
 # --- RIGHT: Grove 7 = right encoder; buzzer, RGB (unused); status LED
 g7y = by(0.59)
@@ -352,8 +349,7 @@ for lbl, pair in items:
     w = tw(lbl, F_CHIPS) + 26
     chip(x, ly, w, lbl, pair, F_CHIPS, outline=DEV_O if lbl == "this car" else None)
     x += w + 14
-d.text((60, ly + 30), "GP26 is wired to both Grove 5 and Grove 6, so line sensor 2 on Grove 5 must connect only GND, VCC and DO. "
-                      "The MAKER port duplicates Grove 2's GP2/GP3 (the ultrasonic) and must stay empty.", font=F_SMALL, fill="#555555")
+d.text((60, ly + 30), "GP26 is wired to both Grove 5 and Grove 6, so line sensor 2 on Grove 5 must connect only GND, VCC and DO.", font=F_SMALL, fill="#555555")
 d.text((60, ly + 54), "Patched in the kernel port by build/setup.sh: I\u00b2C0 moved from GP8/9 to GP4/5, UART0 off GP0/1 "
                       "(console is USB), status LED GP16\u2192GP19, GP27/28 kept digital. Detail: docs/HARDWARE.md \u00a71.", font=F_SMALL, fill="#555555")
 

@@ -1,24 +1,70 @@
 # Buddy 2 — Motion Control (PID, Odometry, Movement)
 
-> Part of the team guide. Everything shared — the event bus (§0.2), the
-> non-blocking rule (§0.3), the mission state machine (§0.4), building and
-> flashing (§0.5), the `core/` toolbox (§0.6), the hardware (§0.7) and the
-> bench modes (§0.8) — lives in [`TEAM_GUIDE.md`](../../TEAM_GUIDE.md).
-> Every `§0.x` below points there. Read §0 once before starting here.
+> Your part of the team guide. The shared picture — the event bus (§1.2),
+> the non-blocking rule (§1.3), start-up and the mission state machine
+> (§2.1–2.2), the `core/` toolbox (§2.3) and the shared hardware (§3) — is
+> in [`TEAM_GUIDE.md`](../../TEAM_GUIDE.md); every `§` below points there.
+> Installing, building, flashing and testing is [`BUILD.md`](../../BUILD.md).
 
 **Files:** `subsystems/sub_motion.c` / `.h`, `drivers/drv_motor.c` / `.h`,
 `drivers/drv_encoder.c` / `.h`
 
-**Your hardware** — 2 × DC gear motor with wheel (left on the Robo Pico
-MOTOR 2 terminal, GP10/GP11; right on MOTOR 1, GP8/GP9), 2 × two-channel
-A/B wheel encoder (left on Grove 1 → GP0/GP1,
-right on Grove 7 → GP7/GP28). The Robo Pico's motor driver is shared but
-you're its main user.
-Details and wiring in §0.7 and `docs/HARDWARE.md` §4.2.
+## Your hardware — wiring, pin by pin
+
+**DC gear motor + wheel (×2).** The classic yellow "TT motor": a yellow
+plastic gearbox with a silver motor can on the back and two wires. Each one
+screws into a Robo Pico motor terminal (**left wheel → MOTOR 2, right wheel
+→ MOTOR 1**). The Robo Pico drives each motor with two PWM pins, so
+"forward", "reverse" and "brake" are all done in `drv_motor.c` by choosing
+which pin gets the duty.
+
+**Wheel encoder, two-channel (×2).** Sits on the motor's rear axle and gives
+two pulse outputs, `A` and `B`, that are the same train of pulses shifted by
+a quarter of a step. Every step of the wheel gives one pulse on `A` → speed
+and distance in `drv_encoder.c`. Because `B` is shifted, whether `B` is low
+or high at the instant `A` rises tells you which way the wheel is turning —
+so direction is *measured*, not guessed. Four wires: `VCC`, `GND`, `A`, `B`
+— exactly one Grove cable.
 
 <img src="../img/hw/motor_wheel.png" width="300" alt="TT gear motor"> <img src="../img/hw/encoder_module.png" width="300" alt="encoder module">
 
-**How your files connect to the rest of the car** (see §0.6 for what
+**How to read a Grove socket.** Every Grove socket on the Robo Pico has
+four pins, printed on the board in this order: `GND`, `3V3`, then the two
+GPIO numbers. A standard Grove cable's wires are colour-coded — **black =
+GND, red = 3V3, white = the first GPIO printed, yellow = the second** — but
+don't trust colours blindly: hold the cable against the socket and read
+which printed label each wire lands on. With a Grove-to-jumper (Dupont)
+cable, the four loose ends are what you push onto the sensor's header pins.
+
+**Motors** — loosen the two screws on the terminal, push one motor wire
+into each hole, tighten. There is no "right way round": if a wheel spins
+backwards in the `motion` bench, swap that motor's two wires.
+
+| Motor | Robo Pico terminal | Pins behind it | In the code |
+|---|---|---|---|
+| Left wheel | **MOTOR 2** (the left of the two black terminals) | M2A = GP10, M2B = GP11 | `RC_PIN_MOTOR_L_A/B` |
+| Right wheel | **MOTOR 1** (the right one, nearer the servo header) | M1A = GP8, M1B = GP9 | `RC_PIN_MOTOR_R_A/B` |
+
+**Encoders** — one Grove cable each. The encoder's pins may be labelled
+`A`/`B`, `C1`/`C2` or `OUT A`/`OUT B`; the first is A.
+
+| Encoder pin | Left encoder → **Grove 1** (left edge of the board) | Right encoder → **Grove 7** (right edge) |
+|---|---|---|
+| `VCC` (red) | `3V3` | `3V3` |
+| `GND` (black) | `GND` | `GND` |
+| `A` (white) | `GP0` | `GP7` |
+| `B` (yellow) | `GP1` | `GP28` |
+
+Then check with the `motion` bench (`BUILD.md` §5.2): both speeds must read
+**positive** when the car is driven forward. A negative one means that
+encoder's A and B are swapped — swap the wires, don't change the code.
+
+**Why Grove 1 is special.** GP0/GP1 are also the pins the kernel would use
+for a wired console. `build/setup.sh` turns that off; if the left encoder
+ever counts nothing while the right one works, that patch hasn't been
+applied — run the setup task again.
+
+**How your files connect to the rest of the car** (see §2.3 for what
 each `core/` file is)
 
 Three layers, bottom to top. `drv_motor` only knows how to push power to
@@ -61,36 +107,7 @@ nudges the throttle up or down to close the gap. Every other module — line
 following, obstacle avoidance — just says "go forward 300mm" or "steer
 this much" and trusts this module to make the wheels do it.
 
-**Run your module**
-
-```sh
-./build/build.sh bench=motion && ./build/flash.sh bench=motion
-```
-
-*Type these in **Git Bash** with the repo folder as the current directory (see `TEAM_GUIDE.md` §0.5.3) — or in VS Code, **Terminal → Run Task → RoboCar: build bench image…** then **…flash bench image…** and pick it from the list (§0.5.9). Then open the USB serial port (§0.5.6).*
-
-**Wheels off the ground for phase 1.** The bench runs three phases and
-tells you which it's in:
-
-1. *Open loop, 30 % duty, 4 s* — prints
-   `L cnt=… spd=… dir=… | R cnt=… spd=… dir=…` every 250 ms. Good: both
-   counts climb steadily and **both speeds are positive**. A count that
-   doesn't move is a wiring/power problem on that encoder; a count that
-   jumps in bursts is bounce (raise `DEBOUNCE_US`); a **negative** speed
-   means that encoder's A and B wires are swapped — swap them, don't
-   negate in code. A wheel turning the wrong way is the *motor* wired
-   backwards — swap the motor's two wires.
-2. *`sub_motion_forward_mm(300)`* — the PID drives to 300 mm and the
-   completion callback prints `move completed, travelled N mm`. On the
-   ground, measure it with a tape: the error is what you fold into
-   `RC_ENC_UM_PER_TICK`. If it prints `ABORTED`, the move was cancelled
-   (see `sub_motion_stop`).
-3. *Motors off* — turn a wheel by hand and watch only that side's count
-   change. Good for checking the two encoders aren't cross-wired.
-
-Change the duty, the distance or add a `sub_motion_turn_deg()` phase in
-`bench_motion()` in `app/app_bench.c` as your tuning progresses — this is
-where the PID step-response logging for your report lives.
+**Run your module** — bench `motion`. The full procedure, what good output looks like and what each bad symptom means is in [`BUILD.md`](../../BUILD.md) §5.2. Short version, in VS Code: **Terminal → Run Task → RoboCar: build bench image…**, pick it from the list, put the Pico in BOOTSEL, **…flash bench image…**, then open the Serial Monitor. **Wheels off the ground** for phase 1.
 
 **How to get started**
 
@@ -162,7 +179,7 @@ press.
   percentage with one extra digit of precision, used everywhere instead
   of a fractional 0.0–1.0 float, because the RP2040 has no FPU — no
   hardware floating-point unit, so real division of fractional numbers is
-  slow/unsupported and the whole codebase avoids it — see §2 of this
+  slow/unsupported and the whole codebase avoids it — see `TEAM_GUIDE.md` §5 of the
   guide, "No floating point anywhere"). `drv_motor_set()` clamps every
   incoming duty to ±`DUTY_MAX` so nothing downstream can ever ask for more
   than 100% power.
@@ -170,7 +187,7 @@ press.
 **The `motor_t` struct** — one instance per motor, kept in the private
 `motors[2]` array indexed by `rc_side_t` (`RC_SIDE_LEFT`/`RC_SIDE_RIGHT`):
 `pin_a`/`pin_b` are which two GPIO pins drive this motor (numbers come
-from `rc_config.h`, the one file all pin numbers live in — see §2);
+from `rc_config.h`, the one file all pin numbers live in — see `TEAM_GUIDE.md` §5);
 `last` is the most recently commanded signed duty, kept purely so
 `drv_motor_get()` can report it later to telemetry.
 
@@ -229,7 +246,7 @@ measurement instead of a guess.
   resuming exactly where it left off. It exists so time-critical events
   (like "the wheel just clicked") get handled with microsecond precision
   instead of waiting for the next time some loop happens to check the pin.
-  See TEAM_GUIDE.md §0.2 for the project-wide "golden rule" about what an
+  See TEAM_GUIDE.md §1.2 for the project-wide "golden rule" about what an
   ISR is and isn't allowed to do.
 - **`volatile`** — a C keyword you'll see on every field of the `enc_t`
   struct below. It tells the compiler "this variable can change at any
@@ -293,7 +310,7 @@ read channel B once with `gpio_get_val(e->pin_b)` to set `dir`, record
 the new timestamp, store the new period, increment `count`, and call
 `rc_defer_signal_i(defer_h)` to wake the bottom-half task. That single
 GPIO read is a register read, which the interrupt rule allows. It does
-**not** build or publish an event itself — see TEAM_GUIDE.md §0.2's rule
+**not** build or publish an event itself — see TEAM_GUIDE.md §1.2's rule
 that an ISR may only record state and hand off, never do real work,
 because the two encoder pins, the ultrasonic echo pin, and the barcode
 pin all share the same interrupt hardware bank; time spent in one ISR is
@@ -379,7 +396,7 @@ fast that wheel is currently going," this file is the layer that actually
 decides *what* duty to send, moment to moment, to make the car do what
 the rest of the team asked for — "drive forward 300 mm," "turn 90°,"
 "drive with this much steering bias." The public API is non-blocking (see
-§0.3 up top): calling `sub_motion_forward_mm(300, callback, ctx)` returns
+§1.3 up top): calling `sub_motion_forward_mm(300, callback, ctx)` returns
 immediately with a move ID while the car drives in the background on its
 own RTOS task; when the move finishes, your callback fires and an
 `RC_EVT_MOTION_DONE` event is published on the event bus for anyone else
@@ -505,7 +522,7 @@ this loop reads. It's an infinite `for (;;)` loop that calls
 `tk_dly_tsk(RC_PERIOD_MOTION_MS)` at the top of every iteration —
 `RC_PERIOD_MOTION_MS` is 20 ms (50 Hz) from `rc_config.h`, and
 `tk_dly_tsk` is a genuine RTOS sleep: the task is fully parked and other
-tasks get the CPU during that 20 ms, not a busy-wait loop (see §0.3's
+tasks get the CPU during that 20 ms, not a busy-wait loop (see §1.3's
 non-blocking rule, applied here at the task level rather than the
 API-call level).
 

@@ -1,21 +1,48 @@
 # Buddy 4 — IMU & Terrain Detection
 
-> Part of the team guide. Everything shared — the event bus (§0.2), the
-> non-blocking rule (§0.3), the mission state machine (§0.4), building and
-> flashing (§0.5), the `core/` toolbox (§0.6), the hardware (§0.7) and the
-> bench modes (§0.8) — lives in [`TEAM_GUIDE.md`](../../TEAM_GUIDE.md).
-> Every `§0.x` below points there. Read §0 once before starting here.
+> Your part of the team guide. The shared picture — the event bus (§1.2),
+> the non-blocking rule (§1.3), start-up and the mission state machine
+> (§2.1–2.2), the `core/` toolbox (§2.3) and the shared hardware (§3) — is
+> in [`TEAM_GUIDE.md`](../../TEAM_GUIDE.md); every `§` below points there.
+> Installing, building, flashing and testing is [`BUILD.md`](../../BUILD.md).
 
 **Files:** `subsystems/sub_terrain.c/.h`, `drivers/drv_imu.c/.h`
 
-**Your hardware** — 1 × GY-511 breakout (LSM303DLHC accelerometer +
-magnetometer, **no gyroscope**) on I2C0: SDA → GP4, SCL → GP5 (Robo Pico
-Grove 3, after the §0.5.3 pin patch). Mount it flat and rigid. Details in
-§0.7 and `docs/HARDWARE.md` §4.4.
+## Your hardware — wiring, pin by pin
+
+**GY-511 (LSM303DLHC) breakout (×1).** A small blue board, about the size
+of a fingernail, with an 8-pin header labelled `VIN 3.3V GND SCL SDA INT2
+INT1 DRDY`. It contains an accelerometer (tilt — how far the nose is up or
+down, which is how humps are detected) and a magnetometer (compass). **It
+has no gyroscope**, despite what many online tutorials for "GY-511" assume
+— see `docs/HARDWARE.md` §1.1. Mount it flat and firmly; a wobbling IMU
+reports a wobbling road.
 
 <img src="../img/hw/gy511_lsm303dlhc.jpg" width="260" alt="GY-511 breakout">
 
-**How your files connect to the rest of the car** (see §0.6 for what
+**How to read a Grove socket.** Every Grove socket on the Robo Pico has
+four pins, printed on the board in this order: `GND`, `3V3`, then the two
+GPIO numbers. A standard Grove cable's wires are colour-coded — **black =
+GND, red = 3V3, white = the first GPIO printed, yellow = the second** — but
+don't trust colours blindly: hold the cable against the socket and read
+which printed label each wire lands on. With a Grove-to-jumper (Dupont)
+cable, the four loose ends are what you push onto the sensor's header pins.
+
+Only four of the eight pins are used — one Grove cable into **Grove 3**:
+
+| GY-511 pin | → Grove 3 label | Why |
+|---|---|---|
+| `VIN` | `3V3` (red) | power in, through the module's own regulator |
+| `GND` | `GND` (black) | ground |
+| `SDA` | `GP4` (white) | I²C data — **SDA is GP4**, fixed by the RP2040 chip |
+| `SCL` | `GP5` (yellow) | I²C clock — **SCL is GP5** |
+| `3.3V`, `INT1`, `INT2`, `DRDY` | — | leave empty (the code polls; no interrupt pins needed) |
+
+Swapping SDA and SCL is the single most common reason the boot log says
+`[init] imu FAILED`. Check with the `imu` bench: level should read pitch
+≈ 0 and `z` ≈ 1000 mg.
+
+**How your files connect to the rest of the car** (see §2.3 for what
 each `core/` file is)
 
 The IMU is the one sensor that does **not** go through `core/rc_gpioirq`
@@ -27,7 +54,7 @@ directly).
 
 | Your file | Talks to | Through | In plain terms |
 |---|---|---|---|
-| `drv_imu.c` | the RTOS port's I2C driver | `<dev_i2c.h>` — `tk_opn_dev("iica")` plus the port's device read/write calls on I2C0 | Reads six bytes of accelerometer and six of magnetometer from the chip at addresses `0x19` / `0x1E` (GP4/GP5 after the §0.5.3 pin patch). |
+| `drv_imu.c` | the RTOS port's I2C driver | `<dev_i2c.h>` — `tk_opn_dev("iica")` plus the port's device read/write calls on I2C0 | Reads six bytes of accelerometer and six of magnetometer from the chip at addresses `0x19` / `0x1E` (GP4/GP5 after the `BUILD.md` §3 pin patch). |
 | `drv_imu.c` | the **Sense task** in `app_main.c` | `drv_imu_sample()` called every 10 ms | The Sense task is the clock; you don't own a task. |
 | `drv_imu.c` | `core/rc_event` | `rc_event_publish(RC_EVT_IMU_SAMPLE)` | One parcel per sample with raw x/y/z and the derived pitch in tenths of a degree. |
 | `drv_imu.c` | `core/rc_config.h` | `RC_I2C_UNIT_IMU`, `RC_I2C_ADDR_ACCEL`, `RC_I2C_ADDR_MAG` | Which bus and which chip addresses. |
@@ -57,26 +84,7 @@ measure spin rate directly), so the "obvious" textbook approach of
 integrating rotation over time to get an angle is not available here —
 every trick in this module works around that missing piece.
 
-**Run your module**
-
-```sh
-./build/build.sh bench=imu && ./build/flash.sh bench=imu
-```
-
-*Type these in **Git Bash** with the repo folder as the current directory (see `TEAM_GUIDE.md` §0.5.3) — or in VS Code, **Terminal → Run Task → RoboCar: build bench image…** then **…flash bench image…** and pick it from the list (§0.5.9). Then open the USB serial port (§0.5.6).*
-
-Motors off. Keep the car **level and still** during boot — that's when
-`drv_imu_calibrate()` runs. Then five times a second:
-`acc x=… y=… z=… mg  pitch=… deg  class=…  max peak=… mm`. Good: level
-reads `z` ≈ 1000 mg and `pitch` ≈ 0.0; lift the nose and pitch goes
-**positive**, drop it and it goes negative; `class` is `STATIONARY`
-while it sits there. Push the car over a book: you should see
-`[bench] hump BEGIN`, then `hump END peak=… mm` and `max peak` update.
-If the boot log said `[init] imu FAILED`, the I²C wiring is wrong — SDA
-is GP4 and SCL is GP5, and swapping them is the usual cause. If pitch
-sits at a constant non-zero value, the board isn't mounted flat. This
-bench is also how you log flat-ground pitch noise to set
-`PITCH_ENTER_DDEG`.
+**Run your module** — bench `imu`. The full procedure, what good output looks like and what each bad symptom means is in [`BUILD.md`](../../BUILD.md) §5.6. Short version, in VS Code: **Terminal → Run Task → RoboCar: build bench image…**, pick it from the list, put the Pico in BOOTSEL, **…flash bench image…**, then open the Serial Monitor. Keep the car level and still while it boots.
 
 **How to get started**
 
@@ -121,7 +129,7 @@ started" walkthrough above. It assumes zero prior coding or physics
 background, so the first time a term like "gravity vector," "pitch,"
 "accelerometer," "endianness," or "bit-shifting" shows up, it's explained
 in plain language. It does **not** repeat the event-bus/publish-subscribe
-or non-blocking explanations from §0 of this guide — read those first if
+or non-blocking explanations from `TEAM_GUIDE.md` §1.2–1.3 — read those first if
 you haven't.
 
 ## The two sensors, in plain terms
@@ -265,7 +273,7 @@ Because this function *blocks* — it waits for the I²C transaction to
 finish before returning — it must only be called from a normal task, and
 never from an **ISR** (Interrupt Service Routine, a tiny piece of code
 the processor jumps to instantly when a hardware event happens, e.g. a
-pin changing state — see §0.2 of this guide for the full explanation and
+pin changing state — see §1.2 of this guide for the full explanation and
 the "golden rule" about what an ISR is and isn't allowed to do).
 
 **`drv_imu_read_mag(int16_t *x, int16_t *y, int16_t *z)` — register trap
@@ -307,7 +315,7 @@ total), divides by how many readings actually succeeded, and stores the
 result as `bias_x`/`bias_y`/`bias_z` — to be subtracted from every future
 reading. It sleeps briefly between samples (`tk_dly_tsk`, a kernel
 "pause this task, let others run" call) rather than looping tight, in
-keeping with the non-blocking philosophy from §0.3 — though since this
+keeping with the non-blocking philosophy from §1.3 — though since this
 only runs once before the mission starts, that cost is essentially free
 either way. **Skip calling this and every pitch reading for the rest of
 the run will be silently offset by whatever tilt the board happened to be
@@ -342,7 +350,7 @@ gravity, which (via the small-angle trick) is approximately the pitch in
 radians. Multiplying by 573 then converts radians to *tenths of a
 degree* in one step: 1 radian = 180/π degrees ≈ 57.3 degrees ≈ 573 tenths
 of a degree. The result stays a plain whole number throughout — the
-project's "no floating point anywhere" rule (see §2 of this guide) in
+project's "no floating point anywhere" rule (see `TEAM_GUIDE.md` §5) in
 action. The one caveat: this only measures tilt correctly when the car
 isn't *also* accelerating or braking hard at the same moment, since a
 hard brake pushes on the X axis too and would be indistinguishable from
@@ -458,7 +466,7 @@ a second.
 
 **The public API in `sub_terrain.h`.** `sub_terrain_init()` is called
 once at boot; it resets internal state and subscribes `on_sample()` to
-`RC_EVT_IMU_SAMPLE` on the bus's **fast lane** (see §0.2 — hump/impact
+`RC_EVT_IMU_SAMPLE` on the bus's **fast lane** (see §1.2 — hump/impact
 detection needs to react without delay, the same reasoning as steering).
 `sub_terrain_on_hump(cb, ctx)` lets any other module register a plain
 function to be called the moment a hump finishes, as an alternative to

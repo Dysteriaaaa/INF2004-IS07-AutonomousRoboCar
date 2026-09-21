@@ -1,18 +1,30 @@
 # Buddy 1 — WiFi, Command & Telemetry
 
-> Part of the team guide. Everything shared — the event bus (§0.2), the
-> non-blocking rule (§0.3), the mission state machine (§0.4), building and
-> flashing (§0.5), the `core/` toolbox (§0.6), the hardware (§0.7) and the
-> bench modes (§0.8) — lives in [`TEAM_GUIDE.md`](../../TEAM_GUIDE.md).
-> Every `§0.x` below points there. Read §0 once before starting here.
+> Your part of the team guide. The shared picture — the event bus (§1.2),
+> the non-blocking rule (§1.3), start-up and the mission state machine
+> (§2.1–2.2), the `core/` toolbox (§2.3) and the shared hardware (§3) — is
+> in [`TEAM_GUIDE.md`](../../TEAM_GUIDE.md); every `§` below points there.
+> Installing, building, flashing and testing is [`BUILD.md`](../../BUILD.md).
 
-**Your hardware** — nothing to wire: the CYW43439 WiFi radio is on the
-Pico W itself, and until the network sink exists your "device" is the
-console on the Pico's own USB port. See §0.7.
+## Your hardware — nothing to wire
+
+The WiFi radio is the CYW43439 module already soldered onto the Pico W (the
+metal can at the USB end). It talks to the RP2040 over pins that never leave
+the board (GP23/24/25/29), so there is no cable for you. Your hardware work
+is:
+
+- making sure every image is built by `build/build.sh` / the VS Code tasks,
+  so the console rides the USB cable (`CONSOLE=usb_cdc`) — GP0/GP1, the
+  pins a wired console would use, belong to the left encoder;
+- later, confirming the radio comes up through the kernel port's
+  `libwifi`, and bringing a laptop hotspot or router to the demo.
+
+The status LED on GP19 is *shared* hardware (everyone's boot check) — its
+wiring is in `TEAM_GUIDE.md` §3.
 
 <img src="../img/hw/pico_w_pinout.jpg" width="420" alt="Pico W pinout">
 
-**How your files connect to the rest of the car** (see §0.6 for what
+**How your files connect to the rest of the car** (see §2.3 for what
 each `core/` file is)
 
 You are the only buddy without a `drivers/` file of your own — the WiFi
@@ -49,21 +61,7 @@ outside — though that path isn't wired up yet. Today the messages go to the
 on-screen debug console; the design lets that be swapped for WiFi later
 without rewriting anything else.
 
-**Run your module**
-
-```sh
-./build/build.sh bench=telemetry && ./build/flash.sh bench=telemetry
-```
-
-*Type these in **Git Bash** with the repo folder as the current directory (see `TEAM_GUIDE.md` §0.5.3) — or in VS Code, **Terminal → Run Task → RoboCar: build bench image…** then **…flash bench image…** and pick it from the list (§0.5.9). Then open the USB serial port (§0.5.6).*
-
-Everything senses, the motors stay off. Good output: a `[telem] car/01/state
-{...}` line four times a second with sensor values that change when you
-move the car by hand, a `[telem] car/01/status` heartbeat every ~2 s, and
-`[bench] dropped fast=0 slow=0` every 5 s. A non-zero dropped count means
-a consumer is too slow for the event ring — your first real bug to chase.
-Once your UDP sink exists, this same bench is where you point a `netcat`
-listener on your laptop and watch the same lines arrive over WiFi.
+**Run your module** — bench `telemetry`. The full procedure, what good output looks like and what each bad symptom means is in [`BUILD.md`](../../BUILD.md) §5.9. Short version, in VS Code: **Terminal → Run Task → RoboCar: build bench image…**, pick it from the list, put the Pico in BOOTSEL, **…flash bench image…**, then open the Serial Monitor.
 
 **How to get started**
 
@@ -94,7 +92,7 @@ listener on your laptop and watch the same lines arrive over WiFi.
 **Code walkthrough**
 
 This is a line-by-line-style tour of `sub_telemetry.h` and
-`sub_telemetry.c`. It assumes you've read §0 above (event bus, lanes,
+`sub_telemetry.c`. It assumes you've read `TEAM_GUIDE.md` §1.2–1.3 (event bus, lanes,
 non-blocking pattern) and explains everything else — pointers, structs,
 casts, the works — the first time it shows up. The source files
 themselves now also carry inline comments next to almost every
@@ -483,7 +481,7 @@ of numbers: uptime, total messages sent (`tx_count`) and failed
 event bus itself, shared by every module) how many events on each lane
 were ever dropped because a subscriber's queue filled up before it could
 keep up. `RC_LANE_FAST`/`RC_LANE_SLOW` are the same two lanes described
-in §0.2 — seeing `drop_fast` above zero anywhere in the fleet is a real
+in §1.2 — seeing `drop_fast` above zero anywhere in the fleet is a real
 warning sign, since that's the lane steering and obstacle response rely
 on. `sink->name` reports which transport is currently active
 ("console" today; "udp"/"mqtt" once built) as plain text, reading the
@@ -507,7 +505,7 @@ which the event bus then calls automatically every time that kind of
 event is published anywhere in the program. This module never calls
 Buddy 2's motion code directly; it just reacts whenever Buddy 2's code
 publishes an `RC_EVT_ODOMETRY` event, exactly the publish/subscribe
-pattern from §0.2. `evt` is a *pointer* to the event data (passed by
+pattern from §1.2. `evt` is a *pointer* to the event data (passed by
 pointer rather than by copy so the whole struct doesn't have to be
 duplicated for every subscriber); `evt->u.odometry.speed_l_mm_s` uses
 `->` instead of `.` specifically because `evt` is a pointer — `->` means
@@ -625,7 +623,7 @@ task runs for the entire lifetime of the program, the same as every
 other subsystem's background task.
 
 `tk_dly_tsk(RC_PERIOD_TELEM_MS)` is the key line for the non-blocking
-philosophy in §0.3: it's an RTOS kernel call that puts *this task*
+philosophy in §1.3: it's an RTOS kernel call that puts *this task*
 (only this one) to sleep for `RC_PERIOD_TELEM_MS` milliseconds — 250ms
 by default, defined in `core/rc_config.h`, the same shared tunables file
 every subsystem's periods and priorities live in (Buddy 4's IMU sampling
@@ -641,7 +639,7 @@ connected. The fix belongs right here, once per loop iteration — call
 bit using `tk_dly_tsk` with a growing delay each retry (a "backoff"), then
 try `sink->open()` again. The comment specifically warns against a
 "retry loop" — a tight loop that keeps trying without yielding — because
-that would violate the non-blocking rule from §0.3 and stall the whole
+that would violate the non-blocking rule from §1.3 and stall the whole
 task (and delay every message after it) while waiting on a dead network
 link.
 
@@ -689,7 +687,7 @@ Then it makes six calls to `rc_event_subscribe(event_id, lane, callback,
 ctx)` — one line per kind of announcement this module cares about. Every
 single one uses `RC_LANE_SLOW` deliberately: telemetry reporting must
 never be allowed to sit in front of, or delay, the fast lane used for
-steering and obstacle-avoidance reactions (§0.2's golden rule). `NULL`
+steering and obstacle-avoidance reactions (§1.2's golden rule). `NULL`
 is passed as the `ctx` argument on each because none of these callbacks
 need any extra context beyond the event data itself — everything they
 need is either in the event or in this module's own file-scope state.
@@ -750,7 +748,7 @@ ever actually calls `cmd_cb` — that's the other half of the "receiving
 commands from outside the robot" TODO. Once a UDP or MQTT sink's receive
 path exists and decodes an incoming command, it would call `cmd_cb(cmd,
 arg, cmd_ctx)` to hand it off to whatever registered here (most likely
-`sub_nav.c`, the shared mission state machine from §0.4).
+`sub_nav.c`, the shared mission state machine from §2.2).
 
 **Missing / TODO for Buddy 1**
 

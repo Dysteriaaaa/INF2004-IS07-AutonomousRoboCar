@@ -14,7 +14,9 @@ core/         event bus, timebase, GPIO interrupt mux, PWM helper
 drivers/      one module per physical device
 subsystems/   one module per buddy, plus the mission state machine
 app/          usermain and the housekeeping tasks
-docs/         hardware and setup guide
+docs/         HARDWARE.md (engineering reference), guide/ (one guide per buddy)
+TEAM_GUIDE.md shared code + hardware, for the team
+BUILD.md      install, build, flash, test - step by step
 ```
 
 | File | Buddy | What it owns |
@@ -117,8 +119,11 @@ obvious approach does not work.
 
 ## First steps
 
-1. `git clone --recurse-submodules`, then `./build/setup.sh`. That fetches the
-   kernel port and applies the `docs/HARDWARE.md` §1 patches for you.
+0. New to Pico / C / this repo? Read `TEAM_GUIDE.md`, then follow
+   `BUILD.md` — it does the steps below through VS Code tasks.
+1. `git clone --recurse-submodules`, then `./build/setup.sh` (Git Bash, from
+   the repo folder). That fetches the kernel port and applies the
+   `docs/HARDWARE.md` §1 patches for you.
 2. Measure your car and update the mechanical constants in `rc_config.h`.
 3. Check `IR_ACTIVE_HIGH` in `drv_ir.c` against your sensor modules.
 4. `./build/build.sh` (single core first; the console is USB, GP0/GP1 are the

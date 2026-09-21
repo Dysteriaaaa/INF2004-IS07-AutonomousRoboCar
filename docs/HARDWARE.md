@@ -198,6 +198,10 @@ Two consequences worth planning around:
 
 ## 4. Per-buddy hardware, wiring and drivers
 
+Each buddy's guide in `docs/guide/` repeats their own wiring as a
+pin-by-pin table ("Your hardware"); this section is the engineering
+detail behind those tables.
+
 ### 4.1 Buddy 1 — WiFi, command and telemetry
 
 **Hardware:** none beyond the Pico W's built-in CYW43439.
@@ -466,6 +470,9 @@ The 30 ms of flight time costs nothing.
 
 ## 5. Build and flash
 
+> Never done this before? `BUILD.md` at the repo root walks through every
+> click, VS Code-first. This section is the compact reference.
+
 The kernel port is a git submodule at `external/mtk3smp-rp2040`, pinned to a
 known commit so everyone builds the same kernel. Three scripts in `build/`
 wrap the port's own `make` tree:
@@ -542,8 +549,9 @@ Do not wire everything and flash once. In this order, each step is testable on
 its own:
 
 Each step has a bench image that runs only that piece and prints its
-readings: `./build/build.sh bench=<name>` (see `app/app_bench.h` and
-TEAM_GUIDE.md §0.8).
+readings: `./build/build.sh bench=<name>` (see `app/app_bench.h`). The
+beginner walkthrough of each bench, with sample good/bad output, is
+`BUILD.md` §5.
 
 | Step | Bench | Test | Pass condition |
 |---|---|---|---|

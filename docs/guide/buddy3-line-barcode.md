@@ -1,23 +1,56 @@
 # Buddy 3 — Line Following & Barcode Decoding
 
-> Part of the team guide. Everything shared — the event bus (§0.2), the
-> non-blocking rule (§0.3), the mission state machine (§0.4), building and
-> flashing (§0.5), the `core/` toolbox (§0.6), the hardware (§0.7) and the
-> bench modes (§0.8) — lives in [`TEAM_GUIDE.md`](../../TEAM_GUIDE.md).
-> Every `§0.x` below points there. Read §0 once before starting here.
+> Your part of the team guide. The shared picture — the event bus (§1.2),
+> the non-blocking rule (§1.3), start-up and the mission state machine
+> (§2.1–2.2), the `core/` toolbox (§2.3) and the shared hardware (§3) — is
+> in [`TEAM_GUIDE.md`](../../TEAM_GUIDE.md); every `§` below points there.
+> Installing, building, flashing and testing is [`BUILD.md`](../../BUILD.md).
 
 **Files:** `subsystems/sub_line.c/.h`, `subsystems/sub_barcode.c/.h`,
 `drivers/drv_ir.c/.h`
 
-**Your hardware** — 3 × MH-Sensor-Series IR module (TCRT5000 + LM393):
-two pointing down for the line (sensor 1 `DO` → GP16 on Grove 4, sensor 2
-`DO` → GP6 on Grove 5), one for the barcode on Grove 6 (`DO` → GP27 and
-`AO` → GP26). Each has a trim pot you will need to set on the actual
-track. Details in §0.7 and `docs/HARDWARE.md` §4.3.
+## Your hardware — wiring, pin by pin
+
+**IR reflective module (×3), MH-Sensor-Series.** A small board with a
+sensor element at one end that points *down* at the floor: it shines
+infrared light and measures how much bounces back — a lot from white, very
+little from black. An on-board LM393 comparator with a trim pot turns that
+into a clean `DO` high/low ("black / not black"); `AO` gives the raw
+analogue level. Each module has four pins: `VCC`, `GND`, `DO`, `AO`. Two of
+them are the line sensors (wired on `DO` only); the third is the barcode
+reader (wired on both outputs). The TCRT5000 element itself is the small
+black block with two domes, shown on the right.
 
 <img src="../img/hw/ir_module.png" width="300" alt="IR reflective module"> <img src="../img/hw/tcrt5000_element.png" width="130" alt="TCRT5000 element">
 
-**How your files connect to the rest of the car** (see §0.6 for what
+**How to read a Grove socket.** Every Grove socket on the Robo Pico has
+four pins, printed on the board in this order: `GND`, `3V3`, then the two
+GPIO numbers. A standard Grove cable's wires are colour-coded — **black =
+GND, red = 3V3, white = the first GPIO printed, yellow = the second** — but
+don't trust colours blindly: hold the cable against the socket and read
+which printed label each wire lands on. With a Grove-to-jumper (Dupont)
+cable, the four loose ends are what you push onto the sensor's header pins.
+
+| Module pin | Line sensor 1 (left) → **Grove 4** | Line sensor 2 (right) → **Grove 5** | Barcode sensor → **Grove 6** |
+|---|---|---|---|
+| `VCC` (red) | `3V3` | `3V3` | `3V3` |
+| `GND` (black) | `GND` | `GND` | `GND` |
+| `DO` | `GP16` (white) | `GP6` (white) | `GP27` (yellow) |
+| `AO` | **leave unconnected** | **MUST be left unconnected** | `GP26` (white) |
+
+> **Why line sensor 2's `AO` must stay off.** Grove 5's second signal pin is
+> **GP26 — the very same pin as the barcode sensor's `AO` on Grove 6** (the
+> Robo Pico routes GP26 to both sockets). Connect all four wires on Grove 5
+> and the two analogue outputs are shorted together; both sensors then read
+> nonsense. Three wires only on Grove 5: red, black, and DO.
+
+**Mounting.** Line sensors point straight down at the track, about 5–10 mm
+above it, one either side of the line's centre. The barcode sensor the same
+height, placed so the barcode passes under it as the car drives. Set each
+module's trim pot on the actual track under the actual lights
+(`docs/HARDWARE.md` §4.3), then check with the `line` bench.
+
+**How your files connect to the rest of the car** (see §2.3 for what
 each `core/` file is)
 
 One driver serves two subsystems. `drv_ir` owns all three IR sensors:
@@ -64,39 +97,7 @@ the absolute timing that matters (that changes with speed) but the
 out a letter, which the car then treats as a driving instruction (turn
 left, turn right, U-turn, or go straight).
 
-**Run your module** — three benches, in this order:
-
-```sh
-./build/build.sh bench=line    && ./build/flash.sh bench=line     # sensors only
-./build/build.sh bench=follow  && ./build/flash.sh bench=follow   # the car DRIVES
-./build/build.sh bench=barcode && ./build/flash.sh bench=barcode  # decoder
-```
-
-*Type these in **Git Bash** with the repo folder as the current directory (see `TEAM_GUIDE.md` §0.5.3) — or in VS Code, **Terminal → Run Task → RoboCar: build bench image…** then **…flash bench image…** and pick it from the list (§0.5.9). Then open the USB serial port (§0.5.6).*
-
-*`line`* — motors off. Prints `L=1 R=0 pos=-500 barcode_raw=… state=…`
-ten times a second. `1` means "sees black". Slide the sensors across the
-line by hand: each bit must flip cleanly at the line's edge, and
-`state` must go `TRACKING` → `LOST` when you lift the car off the line
-and `JUNCTION` when both sit on black. If a sensor reads `1` over
-*white*, your module has the opposite polarity — flip `IR_ACTIVE_HIGH` in
-`drv_ir.c`. If a bit flickers at the edge, that's the trim pot (§4.3 of
-`docs/HARDWARE.md`).
-
-*`follow`* — the line follower is enabled and steers through
-`sub_motion_drive()`. Put the car on the line first. It should track a
-straight, then a curve; when it weaves, that's the missing derivative
-term (your TODO). Base speed is the `sub_line_set_base(350)` in
-`app_main.c`.
-
-*`barcode`* — motors off, decoder armed forever. Pull a printed barcode
-under the sensor by hand, at two different speeds. You get one line per
-edge — `edge -> black after 4120 us` — and `[bench] DECODED 'A' cmd=1` on
-a match. Good: the wide bars are consistently 2–3× the narrow ones
-*regardless* of how fast you pulled, and `overruns=0`. No edges at all
-means the sensor's DO isn't on GP27 or the trim pot is off; edges but no
-decode on B/C/D means the placeholder table in `sub_barcode.c` (your
-TODO).
+**Run your module** — bench `line`, `follow`, `barcode`. The full procedure, what good output looks like and what each bad symptom means is in [`BUILD.md`](../../BUILD.md) §5.3–5.5. Short version, in VS Code: **Terminal → Run Task → RoboCar: build bench image…**, pick it from the list, put the Pico in BOOTSEL, **…flash bench image…**, then open the Serial Monitor. `follow` makes the car drive.
 
 **How to get started**
 
@@ -137,7 +138,7 @@ several C ideas (pointers, bitwise operators, function pointers, ISRs,
 ring buffers) that nobody on the team is expected to already know. Every
 time one of those shows up below, it's explained in plain terms the first
 time, then referred back to afterwards. If you haven't yet, skim
-TEAM_GUIDE.md §0 (event bus, publish/subscribe, the two lanes, the
+TEAM_GUIDE.md §1.2–1.3 (event bus, publish/subscribe, the two lanes, the
 non-blocking pattern, and why everything uses "permille" whole numbers
 instead of fractions) — this section assumes you know those already and
 won't re-explain them.
@@ -264,7 +265,7 @@ and calls `rc_defer_signal_i(defer_h)` to wake up the bottom-half task.
 Why it's written this way: this is an ISR (Interrupt Service Routine) —
 a tiny function the RP2040 jumps to automatically, pausing whatever else
 the chip was doing, the instant the barcode sensor's output pin changes
-voltage. TEAM_GUIDE.md §0.2's "golden rule" applies in full force here:
+voltage. TEAM_GUIDE.md §1.2's "golden rule" applies in full force here:
 an ISR may only record a timestamp, flip a couple of registers, and hand
 off — never loop, never publish an event directly, never do anything
 that could take an unpredictable amount of time. Bar width *is* the
@@ -411,7 +412,7 @@ The four states, in plain terms:
   car has reached a junction or the start of a barcode, not that it's
   perfectly centred on a normal line.
 Links to other code: `sub_barcode_arm()` gets called (from the shared
-`sub_nav.c` mission logic — see TEAM_GUIDE.md §0.4) when this state
+`sub_nav.c` mission logic — see TEAM_GUIDE.md §2.2) when this state
 becomes `RC_LINE_JUNCTION`, arming the barcode decoder at exactly the
 moment it's likely to be needed.
 
@@ -492,7 +493,7 @@ detail:
   half of the full ±1000 permille steering range: assertive, but not
   maxed out, leaving headroom. Like every constant in this codebase, it
   must be a whole number because the RP2040 has no hardware
-  floating-point unit (see TEAM_GUIDE.md §2) — a "gain of 2.0" happens to
+  floating-point unit (see TEAM_GUIDE.md §5) — a "gain of 2.0" happens to
   be convenient here because it's already a whole number, but note the
   formula divides by 2 afterward specifically so that non-whole-feeling
   gains could still be approximated with integer tricks if this ever
@@ -540,7 +541,7 @@ different places in `on_sample()` (normal tracking, and brief dropouts),
 so factoring it out avoids repeating the formula.
 
 **`on_sample()`** — the core decision function, called automatically
-every ~5ms via the event bus (see TEAM_GUIDE.md §0.2) whenever
+every ~5ms via the event bus (see TEAM_GUIDE.md §1.2) whenever
 `drv_ir_sample_line()` publishes a new `RC_EVT_LINE_SAMPLE`.
 Walking through it branch by branch:
 1. **`if (!enabled) return;`** — if `sub_line_enable(false)` was called
@@ -589,7 +590,7 @@ Walking through it branch by branch:
 **`sub_line_init()` / `sub_line_enable()` / `sub_line_begin_search()` /
 `sub_line_state()` / `sub_line_set_base()`**
 - `sub_line_init()` subscribes `on_sample()` to `RC_EVT_LINE_SAMPLE` on
-  the fast lane (steering must react quickly — see TEAM_GUIDE.md §0.2 on
+  the fast lane (steering must react quickly — see TEAM_GUIDE.md §1.2 on
   why fast vs. slow lanes exist) and resets state. Call once at boot.
 - `sub_line_enable(on)` is the on/off switch for actually steering —
   state tracking continues either way, only the motor commands stop.
@@ -839,7 +840,7 @@ more bar/space width:
    `sub_motion_drive()` (Buddy 2's module), and tracks whether the car is
    tracking / lost / searching / at a junction.
 3. Reaching `RC_LINE_JUNCTION` (via the shared `sub_nav.c` mission logic,
-   TEAM_GUIDE.md §0.4) arms `sub_barcode_arm(true)`, which in turn enables
+   TEAM_GUIDE.md §2.2) arms `sub_barcode_arm(true)`, which in turn enables
    `drv_ir`'s barcode hardware interrupt.
 4. As the car rolls over the barcode, `barcode_isr()` in `drv_ir.c` times
    every bar/space edge and queues the widths through the ring buffer;

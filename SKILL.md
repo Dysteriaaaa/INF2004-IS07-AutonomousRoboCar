@@ -56,10 +56,12 @@ docs/         HARDWARE.md - read this for wiring and setup
 build/        setup.sh / build.sh / flash.sh, robocar.mk (the makefile hook),
               patch_port.py (board patches); build/out/ holds the .uf2 images
 external/     mtk3smp-rp2040 kernel port as a pinned git submodule
-TEAM_GUIDE.md - beginner-friendly shared guide: event bus, build/flash,
-               core/ toolbox, hardware, bench modes
+TEAM_GUIDE.md - shared guide: big picture, shared code (app_main, sub_nav,
+               core/ toolbox, bench harness), shared hardware, pin map, ownership
+BUILD.md      - install -> clone -> setup -> build -> flash -> test, every step,
+               VS Code Pico extension first; §5 = one bench per buddy + mission
 docs/guide/   one file per buddy (buddy1-telemetry.md ... buddy5-scan-avoidance.md):
-               getting started, line-by-line code walkthrough, TODOs
+               own code line by line, own hardware wired pin by pin, TODOs
 .vscode/      tasks.json (build/flash as VS Code tasks via Git Bash),
                settings.json (Git Bash as the workspace terminal)
 ```
@@ -80,7 +82,8 @@ keeping: the Robo Pico has **seven** Grove ports (1 on the left edge, 7 on
 the right edge, 2-6 along the bottom); the silkscreen carries **GP26 on both
 Grove 5 and Grove 6**, so line sensor 2 on Grove 5 must have only its DO wire
 connected; the MAKER port shares GP2/GP3 with Grove 2 (the ultrasonic) and
-must stay empty; and the two blue parts at the bottom corners are WS2812 RGB
+must stay empty (it is drawn on the board but deliberately has no mapping
+chip in the diagram); and the two blue parts at the bottom corners are WS2812 RGB
 LEDs on GP18, not buttons (the buttons are GP20/GP21).
 
 Current wiring, one Grove cable per device: Grove 1 = left encoder A/B
@@ -91,15 +94,26 @@ encoder A/B (GP7/GP28). Right motor on M1 (GP8/GP9), left motor on M2 (GP10/GP11
 servo on servo port 4 (GP15), status LED on GP19. Buzzer, buttons and UART
 are unused.
 
-`TEAM_GUIDE.md` is the onboarding document for team members with no prior
-C or embedded background: it explains the event bus, the non-blocking
-pattern, the mission state machine, building/flashing and the bench modes
-in plain language. Each buddy's own material - getting-started checklist,
-function-by-function code walkthrough, TODO list - is a separate file in
-`docs/guide/`, and every `§0.x` reference in those files points back at
-`TEAM_GUIDE.md`. Every subsystem and driver source file also carries
-matching inline comments aimed at the same audience. Point someone here
-before re-explaining project basics from scratch.
+Onboarding is split three ways for team members with no prior C or
+embedded background, and the split is deliberate - keep it when editing:
+
+- `TEAM_GUIDE.md` = what is *shared*: §1 big picture (folders, event bus,
+  non-blocking rule), §2 shared code line by line (`app_main.c`, `sub_nav.c`,
+  `core/` toolbox, bench harness), §3 shared hardware (kit, pin map, status
+  LED, ownership table), §4 links to the buddy guides, §5 team rules.
+- `docs/guide/buddyN-*.md` = what is *individual*: that buddy's code
+  function by function, their hardware with a "Your hardware - wiring, pin
+  by pin" section (which sensor pin goes to which Grove/terminal label), a
+  pointer to their bench in `BUILD.md`, and TODOs. `§N.x` references in
+  those files point at `TEAM_GUIDE.md`.
+- `BUILD.md` = *how to run it*: install (VS Code + Pico extension + Git for
+  Windows, no make/WSL), clone, setup task, build/flash tasks, Serial
+  Monitor, then §5 one subsection per bench with good/bad output, and the
+  full mission; §6 terminal equivalents; §7 troubleshooting.
+
+Every subsystem and driver source file also carries matching inline
+comments aimed at the same audience. Point someone at these before
+re-explaining project basics from scratch.
 
 Build commands are run from the repo root in **Git Bash**, never WSL (the
 Pico tools live on the Windows side; `build.sh` detects and refuses WSL).

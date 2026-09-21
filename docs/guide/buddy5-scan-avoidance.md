@@ -1,22 +1,69 @@
 # Buddy 5 — Obstacle Scanning & Avoidance
 
-> Part of the team guide. Everything shared — the event bus (§0.2), the
-> non-blocking rule (§0.3), the mission state machine (§0.4), building and
-> flashing (§0.5), the `core/` toolbox (§0.6), the hardware (§0.7) and the
-> bench modes (§0.8) — lives in [`TEAM_GUIDE.md`](../../TEAM_GUIDE.md).
-> Every `§0.x` below points there. Read §0 once before starting here.
+> Your part of the team guide. The shared picture — the event bus (§1.2),
+> the non-blocking rule (§1.3), start-up and the mission state machine
+> (§2.1–2.2), the `core/` toolbox (§2.3) and the shared hardware (§3) — is
+> in [`TEAM_GUIDE.md`](../../TEAM_GUIDE.md); every `§` below points there.
+> Installing, building, flashing and testing is [`BUILD.md`](../../BUILD.md).
 
 **Files:** `subsystems/sub_scan.c/.h`, `drivers/drv_ultrasonic.c/.h`,
 `drivers/drv_servo.c/.h`
 
-**Your hardware** — 1 × HC-SR04 ultrasonic ranger on Grove 2 (TRIG → GP2,
-ECHO → GP3 **through a 1 kΩ / 2 kΩ divider**) mounted on 1 × SG90-class
-servo (Robo Pico servo port 4, GP15) with a pan bracket.
-Details in §0.7 and `docs/HARDWARE.md` §4.5.
+## Your hardware — wiring, pin by pin
+
+**HC-SR04 ultrasonic ranger (×1).** The blue board with two silver "eyes":
+one speaker (T) that shouts an inaudible click, one microphone (R) that
+listens for the echo. Four pins: `VCC`, `Trig`, `Echo`, `GND`. Range 2 cm –
+4 m; the flight time of the echo is what `drv_ultrasonic.c` measures with
+the microsecond stopwatch.
+
+**SG90-class servo + pan bracket (×1).** The small blue plastic servo with a
+white horn and a three-wire lead (brown or black = ground, red = power,
+orange or yellow = signal). The HC-SR04 bolts to a bracket on the horn so
+the scan task can point it from 30° to 150°. **Centre the servo at 90°
+before attaching the bracket** (the `ultra` bench parks it at 90°).
 
 <img src="../img/hw/hcsr04.jpg" width="260" alt="HC-SR04"> <img src="../img/hw/servo_sg90.png" width="300" alt="SG90 servo">
 
-**How your files connect to the rest of the car** (see §0.6 for what
+**How to read a Grove socket.** Every Grove socket on the Robo Pico has
+four pins, printed on the board in this order: `GND`, `3V3`, then the two
+GPIO numbers. A standard Grove cable's wires are colour-coded — **black =
+GND, red = 3V3, white = the first GPIO printed, yellow = the second** — but
+don't trust colours blindly: hold the cable against the socket and read
+which printed label each wire lands on. With a Grove-to-jumper (Dupont)
+cable, the four loose ends are what you push onto the sensor's header pins.
+
+**HC-SR04 → Grove 2**, one Grove cable, **with a resistor divider on the
+Echo wire**:
+
+| HC-SR04 pin | → Grove 2 label | Note |
+|---|---|---|
+| `VCC` | `3V3` (red) | the module prefers 5 V; at 3.3 V it works with shorter range — see `docs/HARDWARE.md` §3 |
+| `GND` | `GND` (black) | |
+| `Trig` | `GP2` (white) | the Pico's 12 µs "shout" pulse |
+| `Echo` | **→ 1 kΩ → `GP3`** (yellow), **and 2 kΩ from `GP3` to `GND`** | see below |
+
+> **Echo outputs 5 V. The Pico's pins are 3.3 V only and are not 5 V
+> tolerant — connect Echo directly and you destroy the Pico.** Build the
+> divider: Echo wire → one end of a 1 kΩ resistor; the other end of that
+> resistor → the `GP3` wire *and* one end of a 2 kΩ resistor; the other end
+> of the 2 kΩ → `GND`. The junction between the two resistors is what goes
+> to GP3, at 3.33 V. A small breadboard or three solder joints; check it
+> with a multimeter before plugging the Grove cable in.
+
+**Servo → servo header, port 4** (the rightmost of the four columns; the
+header's three rows are `S`, `+`, `−` top to bottom):
+
+| Servo wire | → header pin | GPIO |
+|---|---|---|
+| orange / yellow (signal) | `S`, column 4 | `GP15` |
+| red (power) | `+`, column 4 | battery voltage |
+| brown / black (ground) | `−`, column 4 | — |
+
+Then `docs/HARDWARE.md` §4.5 steps 2–3: measure your servo's settle time
+into `drv_servo.c`, and set `CAR_WIDTH_MM` in `sub_scan.c`.
+
+**How your files connect to the rest of the car** (see §2.3 for what
 each `core/` file is)
 
 Two drivers, one subsystem, and you are the heaviest user of `core/` on
@@ -61,31 +108,7 @@ description of the obstacle (how close, how wide, how much room on each
 side), and then decide whether the car should go straight, swerve left,
 swerve right, or stop.
 
-**Run your module** — two benches:
-
-```sh
-./build/build.sh bench=ultra && ./build/flash.sh bench=ultra   # ranging only
-./build/build.sh bench=scan  && ./build/flash.sh bench=scan    # the full sweep
-```
-
-*Type these in **Git Bash** with the repo folder as the current directory (see `TEAM_GUIDE.md` §0.5.3) — or in VS Code, **Terminal → Run Task → RoboCar: build bench image…** then **…flash bench image…** and pick it from the list (§0.5.9). Then open the USB serial port (§0.5.6).*
-
-*`ultra`* — the servo parks at 90° and the sensor pings straight ahead
-every 100 ms, printing `90 deg: 312 mm`. Hold a book at 100, 300 and
-1000 mm with a tape: readings should be within a few mm and steady. `no
-echo` every time means TRIG/ECHO are swapped or the divider is missing;
-wildly jumping values mean the servo is buzzing against its end-stop or
-the sensor is seeing the floor.
-
-*`scan`* — every few seconds a full sweep: the servo steps through
-30°…150°, each ping prints `<angle> deg: <mm>`, then if something is
-close it re-scans around it in 6° steps, and finally the profile and
-plan print: `closest 240 mm at 60 deg, width 90 mm, clearance L=… R=…`
-and `plan: TURN_RIGHT lateral=… forward=…`. Watch that the servo settles
-before each ping (if readings at a new angle look like the previous
-angle, raise the settle constants in `drv_servo.c`), and that the whole
-sweep completes without the console pausing — the PID loop must keep
-running through it (bring-up step 10).
+**Run your module** — bench `ultra`, `scan`. The full procedure, what good output looks like and what each bad symptom means is in [`BUILD.md`](../../BUILD.md) §5.7–5.8. Short version, in VS Code: **Terminal → Run Task → RoboCar: build bench image…**, pick it from the list, put the Pico in BOOTSEL, **…flash bench image…**, then open the Serial Monitor.
 
 **How to get started**
 
@@ -316,7 +339,7 @@ it and exactly what it does:
    the actual *division* needed to turn microseconds into millimetres
    (via the `US_TO_MM` macro) does **not** happen here — it's deferred to
    a "bottom half" function, `ultra_drain()`, that runs later in normal
-   task context. The golden interrupt rule from TEAM_GUIDE.md §0.2
+   task context. The golden interrupt rule from TEAM_GUIDE.md §1.2
    applies directly here: an ISR may only record a timestamp and hand
    off, never do the heavier work (division, publishing an event, calling
    a user callback) itself. `finish_i()` also does the two things that
@@ -359,7 +382,7 @@ use, and it works directly on whatever integer width is handed in.
 task context. `ultra_drain()` converts the width to millimetres, checks
 it against `RC_ULTRA_MIN_MM`/`RC_ULTRA_MAX_MM` (flagging it invalid if
 out of the sensor's honest working range), then publishes
-`RC_EVT_ULTRA_RESULT` on the shared event bus (see TEAM_GUIDE.md §0.2)
+`RC_EVT_ULTRA_RESULT` on the shared event bus (see TEAM_GUIDE.md §1.2)
 and — if one was registered via `drv_ultrasonic_on_result()` — calls a
 direct callback too. `sub_scan.c`'s `on_range()` is exactly that
 callback: it's what stitches a raw distance reading back into the
@@ -405,7 +428,7 @@ function:
   decides an obstacle needs a proper look). Returns `RC_ERR_BUSY` if a
   scan is already running, otherwise rings `FLG_START` and returns
   **immediately** — this is the "start it and register a callback"
-  non-blocking pattern from TEAM_GUIDE.md §0.3 in action. The actual
+  non-blocking pattern from TEAM_GUIDE.md §1.3 in action. The actual
   scanning work happens later, on `scan_task`'s own schedule.
 - **`scan_task(INT stacd, void *exinf)`** — the background task, created
   once and running forever (`for (;;)`, a loop with no exit — the normal
@@ -495,7 +518,7 @@ multiply/divide instead of needing a real trigonometric function — which
 matters because the RP2040 chip has **no hardware floating-point unit
 (FPU)**, so calling a software `tan()` would be slow, and would also
 require `float`/`double` math, which this entire codebase avoids on
-principle (see TEAM_GUIDE.md §2, "No floating point anywhere" — Buddy 4's
+principle (see TEAM_GUIDE.md §5, "No floating point anywhere" — Buddy 4's
 pitch-to-height calculation in `sub_terrain.c` uses this exact same
 small-angle trick for the same reason). Concretely: `span_ddeg` converts
 the angular span into tenths of a degree (keeping it a whole number even
@@ -535,7 +558,7 @@ turn/distance commands.
 plan, then publishes both on the shared event bus:
 `RC_EVT_OBSTACLE_PROFILE` and `RC_EVT_AVOIDANCE_PLAN`. `sub_nav.c` (the
 shared mission state machine everyone's module plugs into — see
-TEAM_GUIDE.md §0.4) subscribes to `RC_EVT_AVOIDANCE_PLAN` to know when
+TEAM_GUIDE.md §2.2) subscribes to `RC_EVT_AVOIDANCE_PLAN` to know when
 it's time to leave `RC_NAV_AVOIDING` mode and hand off to `sub_motion.c`'s
 actual turn/drive commands; `sub_telemetry.c` (Buddy 1's module)
 subscribes to `RC_EVT_OBSTACLE_PROFILE` to report what was found. Any
