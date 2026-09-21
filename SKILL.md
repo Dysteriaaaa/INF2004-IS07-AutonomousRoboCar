@@ -52,7 +52,7 @@ subsystems/   one module per team member, plus the mission state machine
 app/          usermain and housekeeping tasks
 docs/         HARDWARE.md - read this for wiring and setup
               img/hw/ - pin map diagram + the script that generates it
-documents/    datasheets, the Week 6 design review, and its diagrams
+              datasheets, the Week 6 design review (.docx) and week6_diagrams/
 build/        setup.sh / build.sh / flash.sh, robocar.mk (the makefile hook),
               patch_port.py (board patches); build/out/ holds the .uf2 images
 external/     mtk3smp-rp2040 kernel port as a pinned git submodule
@@ -73,7 +73,7 @@ the PNGs, and re-run them:
 | `gen_board_view.py` | `robopico_board_view.png` | `d2b_board_view.png` | The same wiring drawn on the physical board, for finding the right socket |
 
 Board geometry and port assignments came from the Cytron Robo Pico datasheet
-in `documents/Robo_Pico.pdf` (its text is glyph-encoded, so the board images
+in `docs/Robo_Pico.pdf` (its text is glyph-encoded, so the board images
 have to be extracted and read); signal assignments come from
 `core/rc_config.h` and section 2 of the Week 6 design review. Facts worth
 keeping: the Robo Pico has **seven** Grove ports (1 on the left edge, 7 on

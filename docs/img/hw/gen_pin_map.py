@@ -12,11 +12,11 @@ white/green-outlined = the device this car connects. Faded chips are parts
 of the board this car does not use.
 
 Board geometry and connector pin-outs come from the Cytron Robo Pico
-datasheet (documents/Robo_Pico.pdf); signal assignments from core/rc_config.h.
+datasheet (docs/Robo_Pico.pdf); signal assignments from core/rc_config.h.
 
 Run:  python docs/img/hw/gen_pin_map.py
 Out:  docs/img/hw/robopico_pin_map.png
-      documents/week6_diagrams/d2_pin_layout.png (copy, for the Word doc)
+      docs/week6_diagrams/d2_pin_layout.png (copy, for the Word doc)
 """
 
 import os
@@ -364,7 +364,7 @@ root = os.path.abspath(os.path.join(here, "..", "..", ".."))
 out1 = os.path.join(here, "robopico_pin_map.png")
 img.save(out1)
 print("wrote", out1)
-out2 = os.path.join(root, "documents", "week6_diagrams", "d2_pin_layout.png")
+out2 = os.path.join(root, "docs", "week6_diagrams", "d2_pin_layout.png")
 if os.path.isdir(os.path.dirname(out2)):
     img.save(out2)
     print("wrote", out2)

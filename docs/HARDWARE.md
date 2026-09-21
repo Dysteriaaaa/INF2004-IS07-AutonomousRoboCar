@@ -130,8 +130,8 @@ Both are generated — edit the scripts, never the PNGs, then re-run:
 
 | Script | Output | Copy for the design review |
 |---|---|---|
-| `docs/img/hw/gen_pin_map.py` | `robopico_pin_map.png` | `documents/week6_diagrams/d2_pin_layout.png` |
-| `docs/img/hw/gen_board_view.py` | `robopico_board_view.png` | `documents/week6_diagrams/d2b_board_view.png` |
+| `docs/img/hw/gen_pin_map.py` | `robopico_pin_map.png` | `docs/week6_diagrams/d2_pin_layout.png` |
+| `docs/img/hw/gen_board_view.py` | `robopico_board_view.png` | `docs/week6_diagrams/d2b_board_view.png` |
 
 Slice number is `(GPIO >> 1) & 7`. Grove port numbers are from the Robo Pico
 datasheet.

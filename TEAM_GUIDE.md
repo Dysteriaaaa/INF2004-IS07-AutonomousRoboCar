@@ -804,7 +804,7 @@ parts that everyone's code runs through. Use this section to recognise
 each part on the bench and to know who to ask about it.
 
 Where the pictures come from: the Robo Pico, Pico W, HC-SR04, GY-511 and
-TCRT5000 images are lifted from the datasheets in `documents/`. The
+TCRT5000 images are lifted from the datasheets in `docs/`. The
 motor, encoder, servo, IR module and battery have no datasheet in the
 folder, so those are labelled drawings of the standard part — **when the
 kit is in front of you, photograph the real thing and drop it into
