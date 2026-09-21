@@ -54,6 +54,31 @@ Echo wire**:
 > to GP3, at 3.33 V. A small breadboard or three solder joints; check it
 > with a multimeter before plugging the Grove cable in.
 
+<img src="../img/hw/hcsr04_divider.png" width="900" alt="HC-SR04 Echo divider: schematic and breadboard">
+
+**Building the divider, step by step** (the right half of the picture):
+
+1. Plug the Grove cable into **Grove 2**. Its four loose ends are black =
+   `GND`, red = `3V3`, white = `GP2`, yellow = `GP3`.
+2. **1 kΩ** (bands brown · black · red): one leg in breadboard row 5, the
+   other in row 10.
+3. **2 kΩ** (red · black · red; 2.2 kΩ red · red · red is fine too): one
+   leg in row 10 — a *different hole* of the same row — the other in row 15.
+4. Jumper wire from the HC-SR04's `Echo` pin to row 5.
+5. **Yellow (GP3)** into row 10. That row is the junction: 3.33 V lives here.
+6. **Black (GND)** into row 15, plus a jumper from the HC-SR04's `GND` to
+   row 15 — the sensor and the Pico must share a ground.
+7. **Red (3V3)** straight to the HC-SR04's `VCC`; **white (GP2)** straight
+   to `Trig`. No resistors on those two.
+8. Multimeter on DC volts, black probe in row 15, red probe in row 10: about
+   0 V at rest, and never above 3.4 V while the sensor is ranging. If you
+   read 5 V the 2 kΩ isn't reaching row 15; if you never read anything the
+   1 kΩ isn't between rows 5 and 10.
+
+Resistors have no polarity — either leg can go either way. No breadboard?
+Make the same three joints by twisting and taping or soldering: Echo↔1 kΩ,
+1 kΩ↔yellow↔2 kΩ, 2 kΩ↔black↔sensor GND.
+
 **Servo → servo header, port 4** (the rightmost of the four columns; the
 header's three rows are `S`, `+`, `−` top to bottom):
 

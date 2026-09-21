@@ -69,13 +69,14 @@ BUILD.md      - install -> clone -> setup -> build -> flash -> test, every step,
                settings.json (Git Bash as the workspace terminal)
 ```
 
-Two generated pin diagrams live in `docs/img/hw/`. Edit the scripts, never
+Three generated diagrams live in `docs/img/hw/`. Edit the scripts, never
 the PNGs, and re-run them:
 
 | Script | Output | Review copy | What it shows |
 |---|---|---|---|
 | `gen_pin_map.py` | `robopico_pin_map.png` | `d2_pin_layout.png` | The Robo Pico drawn to scale (terminals/servo top, Grove 1 left, Grove 7 right, Grove 2-6 bottom, headers + socket centre) with poster-style chips fanning out from each connector: GPIO, function in use, device |
 | `gen_board_view.py` | `robopico_board_view.png` | `d2b_board_view.png` | The same wiring drawn on the physical board, for finding the right socket |
+| `gen_hcsr04_divider.py` | `hcsr04_divider.png` | - | The HC-SR04 Echo 5 V->3.3 V divider: schematic (1 k / 2 k, junction to GP3) plus a mini-breadboard layout with the Grove cable colours |
 
 Board geometry and port assignments came from the Cytron Robo Pico datasheet
 in `docs/Robo_Pico.pdf` (its text is glyph-encoded, so the board images
