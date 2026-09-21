@@ -1,0 +1,81 @@
+{
+  // Run these from  Terminal > Run Task...  (or Ctrl+Shift+B for the default build).
+  // Every task runs build/*.sh in Git Bash, so it works whether or not the
+  // integrated terminal's default profile is Git Bash. Nothing here needs WSL.
+  "version": "2.0.0",
+  "options": {
+    "cwd": "${workspaceFolder}"
+  },
+  "windows": {
+    "options": {
+      "shell": {
+        "executable": "C:\\Program Files\\Git\\bin\\bash.exe",
+        "args": ["-lc"]
+      }
+    }
+  },
+  "presentation": {
+    "reveal": "always",
+    "panel": "dedicated",
+    "clear": true
+  },
+  "problemMatcher": ["$gcc"],
+  "tasks": [
+    {
+      "label": "RoboCar: setup (first time / after submodule update)",
+      "type": "shell",
+      "command": "./build/setup.sh"
+    },
+    {
+      "label": "RoboCar: build mission image",
+      "type": "shell",
+      "command": "./build/build.sh",
+      "group": { "kind": "build", "isDefault": true }
+    },
+    {
+      "label": "RoboCar: build bench image...",
+      "type": "shell",
+      "command": "./build/build.sh bench=${input:bench}",
+      "group": "build"
+    },
+    {
+      "label": "RoboCar: build mission image (dual core)",
+      "type": "shell",
+      "command": "./build/build.sh smp",
+      "group": "build"
+    },
+    {
+      "label": "RoboCar: flash mission image  (Pico in BOOTSEL first)",
+      "type": "shell",
+      "command": "./build/flash.sh"
+    },
+    {
+      "label": "RoboCar: flash bench image...  (Pico in BOOTSEL first)",
+      "type": "shell",
+      "command": "./build/flash.sh bench=${input:bench}"
+    },
+    {
+      "label": "RoboCar: clean",
+      "type": "shell",
+      "command": "./build/build.sh clean"
+    }
+  ],
+  "inputs": [
+    {
+      "id": "bench",
+      "type": "pickString",
+      "description": "Which buddy's bench test?",
+      "options": [
+        { "label": "motion    - Buddy 2: motors + encoders (wheels off the ground!)", "value": "motion" },
+        { "label": "line      - Buddy 3: line sensors, motors off", "value": "line" },
+        { "label": "follow    - Buddy 3: line follower, the car DRIVES", "value": "follow" },
+        { "label": "barcode   - Buddy 3: barcode decoder", "value": "barcode" },
+        { "label": "imu       - Buddy 4: accelerometer, pitch, humps", "value": "imu" },
+        { "label": "ultra     - Buddy 5: ultrasonic ranging at 90 deg", "value": "ultra" },
+        { "label": "scan      - Buddy 5: full servo sweep + plan", "value": "scan" },
+        { "label": "telemetry - Buddy 1: telemetry stream, car stationary", "value": "telemetry" }
+      ],
+      "default": "motion"
+    }
+  ]
+}

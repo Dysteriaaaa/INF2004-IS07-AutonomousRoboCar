@@ -16,3 +16,4 @@ CMakeUserPresets.json
 
 # firmware images from build/build.sh
 build/out/
+build/tools/

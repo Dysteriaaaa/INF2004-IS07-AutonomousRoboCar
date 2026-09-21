@@ -1,0 +1,6 @@
+{
+  "recommendations": [
+    "raspberry-pi.raspberry-pi-pico",
+    "ms-vscode.cpptools"
+  ]
+}

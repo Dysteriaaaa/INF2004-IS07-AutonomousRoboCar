@@ -56,8 +56,12 @@ documents/    datasheets, the Week 6 design review, and its diagrams
 build/        setup.sh / build.sh / flash.sh, robocar.mk (the makefile hook),
               patch_port.py (board patches); build/out/ holds the .uf2 images
 external/     mtk3smp-rp2040 kernel port as a pinned git submodule
-TEAM_GUIDE.md - beginner-friendly, per-buddy build/flash steps and a
-               line-by-line code walkthrough of every subsystem and driver
+TEAM_GUIDE.md - beginner-friendly shared guide: event bus, build/flash,
+               core/ toolbox, hardware, bench modes
+docs/guide/   one file per buddy (buddy1-telemetry.md ... buddy5-scan-avoidance.md):
+               getting started, line-by-line code walkthrough, TODOs
+.vscode/      tasks.json (build/flash as VS Code tasks via Git Bash),
+               settings.json (Git Bash as the workspace terminal)
 ```
 
 Two generated pin diagrams live in `docs/img/hw/`. Edit the scripts, never
@@ -89,12 +93,19 @@ are unused.
 
 `TEAM_GUIDE.md` is the onboarding document for team members with no prior
 C or embedded background: it explains the event bus, the non-blocking
-pattern and the mission state machine in plain language, then gives each
-"Buddy" a getting-started checklist, a function-by-function code
-walkthrough, and their module's TODO list. Every subsystem and driver
-source file also carries matching inline comments aimed at the same
-audience. Point someone here before re-explaining project basics from
-scratch.
+pattern, the mission state machine, building/flashing and the bench modes
+in plain language. Each buddy's own material - getting-started checklist,
+function-by-function code walkthrough, TODO list - is a separate file in
+`docs/guide/`, and every `§0.x` reference in those files points back at
+`TEAM_GUIDE.md`. Every subsystem and driver source file also carries
+matching inline comments aimed at the same audience. Point someone here
+before re-explaining project basics from scratch.
+
+Build commands are run from the repo root in **Git Bash**, never WSL (the
+Pico tools live on the Windows side; `build.sh` detects and refuses WSL).
+On Windows `build.sh` fetches a portable GNU make into `build/tools/` if
+none is on PATH. `.vscode/tasks.json` exposes setup/build/bench/flash as
+tasks that always run through Git Bash.
 
 | Module | Owner | Responsibility |
 |---|---|---|

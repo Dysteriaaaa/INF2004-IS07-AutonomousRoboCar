@@ -1,0 +1,9 @@
+{
+  // Git Bash as this workspace's terminal, so ./build/*.sh just works.
+  // (Plain `bash` in PowerShell would open WSL, where the Pico tools are not.)
+  "terminal.integrated.defaultProfile.windows": "Git Bash",
+  "files.eol": "\n",
+  "files.associations": {
+    "*.mk": "makefile"
+  }
+}
