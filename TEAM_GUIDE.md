@@ -771,7 +771,7 @@ without any other edit.
 | Cytron Robo Pico carrier board | 1 | **shared** | — (everything plugs into it) | [Robo Pico](#shared-parts) |
 | Single-cell LiPo battery | 1 | **shared** | Robo Pico LiPo socket | [LiPo](#shared-parts) |
 | Chassis, wheels, castor, Grove cables, status LED | — | **shared** | see `docs/HARDWARE.md` §8 | — |
-| DC gear motor + wheel | 2 | **Buddy 2** | Robo Pico M1 / M2 screw terminals (GP8–GP11) | [motor](#buddy-2-hardware) |
+| DC gear motor + wheel | 2 | **Buddy 2** | Left → MOTOR 2 terminal (GP10/GP11), right → MOTOR 1 terminal (GP8/GP9) | [motor](#buddy-2-hardware) |
 | Wheel encoder, two-channel A/B | 2 | **Buddy 2** | Grove 1 → GP0/GP1 (left), Grove 7 → GP7/GP28 (right) | [encoder](#buddy-2-hardware) |
 | MH-Sensor-Series IR module (TCRT5000 + LM393) | 3 | **Buddy 3** | Grove 4 → GP16, Grove 5 → GP6 (line); Grove 6 → GP27 + GP26/ADC0 (barcode) | [IR module](#buddy-3-hardware) |
 | GY-511 breakout (LSM303DLHC accel + magnetometer) | 1 | **Buddy 4** | Grove 3 → I2C0 on GP4 (SDA) / GP5 (SCL) | [GY-511](#buddy-4-hardware) |
@@ -1756,8 +1756,9 @@ arg, cmd_ctx)` to hand it off to whatever registered here (most likely
 **Files:** `subsystems/sub_motion.c` / `.h`, `drivers/drv_motor.c` / `.h`,
 `drivers/drv_encoder.c` / `.h`
 
-**Your hardware** — 2 × DC gear motor with wheel (Robo Pico M1 / M2
-terminals), 2 × two-channel A/B wheel encoder (left on Grove 1 → GP0/GP1,
+**Your hardware** — 2 × DC gear motor with wheel (left on the Robo Pico
+MOTOR 2 terminal, GP10/GP11; right on MOTOR 1, GP8/GP9), 2 × two-channel
+A/B wheel encoder (left on Grove 1 → GP0/GP1,
 right on Grove 7 → GP7/GP28). The Robo Pico's motor driver is shared but
 you're its main user.
 Details and wiring in §0.7 and `docs/HARDWARE.md` §4.2.

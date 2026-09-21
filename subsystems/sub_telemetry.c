@@ -104,7 +104,7 @@ static rc_result_t console_open(void)
     return RC_OK;
 }
 
-/* Prints one topic+payload pair to the debug console (the same UART/USB
+/* Prints one topic+payload pair to the debug console (the same USB
  * console you see boot logs on). `(void)len;` is a common C idiom for
  * "yes, I know I'm not using this parameter, don't warn me about it" --
  * len isn't needed here because tm_printf() can find the end of the
