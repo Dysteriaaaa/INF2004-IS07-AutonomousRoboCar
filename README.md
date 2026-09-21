@@ -117,9 +117,10 @@ obvious approach does not work.
 
 ## First steps
 
-1. Read `docs/HARDWARE.md` §1. Apply the I²C and `BOARD_LED_PIN` patches.
+1. `git clone --recurse-submodules`, then `./build/setup.sh`. That fetches the
+   kernel port and applies the `docs/HARDWARE.md` §1 patches for you.
 2. Measure your car and update the mechanical constants in `rc_config.h`.
 3. Check `IR_ACTIVE_HIGH` in `drv_ir.c` against your sensor modules.
-4. Build `SMP=0` first, always with `CONSOLE=usb_cdc` (GP0/GP1 are the left
-   encoder, so the UART console is not available). Work through the bring-up
-   table in §7.
+4. `./build/build.sh` (single core first; the console is USB, GP0/GP1 are the
+   left encoder). Flash `build/out/*.uf2`. Work through the bring-up table in
+   `docs/HARDWARE.md` §7.

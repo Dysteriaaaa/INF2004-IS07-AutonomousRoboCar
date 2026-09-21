@@ -1,0 +1,4 @@
+[submodule "external/mtk3smp-rp2040"]
+	path = external/mtk3smp-rp2040
+	url = https://github.com/sirfonzie/mtk3smp-rp2040.git
+	ignore = dirty

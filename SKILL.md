@@ -53,6 +53,9 @@ app/          usermain and housekeeping tasks
 docs/         HARDWARE.md - read this for wiring and setup
               img/hw/ - pin map diagram + the script that generates it
 documents/    datasheets, the Week 6 design review, and its diagrams
+build/        setup.sh / build.sh / flash.sh, robocar.mk (the makefile hook),
+              patch_port.py (board patches); build/out/ holds the .uf2 images
+external/     mtk3smp-rp2040 kernel port as a pinned git submodule
 TEAM_GUIDE.md - beginner-friendly, per-buddy build/flash steps and a
                line-by-line code walkthrough of every subsystem and driver
 ```
@@ -107,11 +110,12 @@ scratch.
 Both configurations build clean and link to a flashable UF2:
 
 ```
-SMP=0   52,532 B text   14,808 B bss    0 warnings
-SMP=1   62,764 B text   18,904 B bss    0 warnings
+SMP=0 usb_cdc   62,784 B text   20,892 B bss    0 warnings
+SMP=1 usb_cdc   73,188 B text   25,000 B bss    0 warnings
 ```
 
-Start on `SMP=0`. Nothing has been run on hardware yet.
+(arm-none-eabi-gcc 15.2.1, Pico SDK 2.3.1 for TinyUSB, via
+`build/build.sh`.) Start on `SMP=0`. Nothing has been run on hardware yet.
 
 ## Architecture: the event bus
 
@@ -298,20 +302,41 @@ Topics are `car/01/{state,status,barcode,hump,obstacle,impact}`.
 
 ## Building
 
-```sh
-git clone https://github.com/sirfonzie/mtk3smp-rp2040.git
-# apply the I2C and BOARD_LED_PIN patches from docs/HARDWARE.md §1
-# place this repo at app_program/robocar/
-# move the port's own app_program/*.c aside - it defines its own usermain
+The kernel port is a git submodule at `external/mtk3smp-rp2040` (pinned,
+`ignore = dirty`). Three scripts in `build/` wrap its `make` tree:
 
-cd build_make
-make CONSOLE=usb_cdc PICO_SDK_PATH=<pico-sdk> -j8          # SMP=0, start here
-make CONSOLE=usb_cdc PICO_SDK_PATH=<pico-sdk> SMP=1 -j8    # dual core
+```sh
+git clone --recurse-submodules <repo>    # or: git submodule update --init
+./build/setup.sh        # patch the port + install the app makefile hook
+./build/build.sh        # SMP=0  -> build/out/mtk3pico_smp0_usb_cdc.uf2
+./build/build.sh smp    # SMP=1  -> build/out/mtk3pico_smp1_usb_cdc.uf2
+./build/flash.sh        # picotool load, Pico in BOOTSEL mode
 ```
 
-Flash by holding BOOTSEL and copying the `.uf2` from `build_make/` to the
-`RPI-RP2` drive. The console is the Pico's own USB port (`CONSOLE=usb_cdc` is
-mandatory — GP0/GP1 are the left encoder), so no USB-serial adapter is used.
+How it fits together, because it is the first thing that breaks if someone
+"tidies" it:
+
+- The port compiles `$(wildcard ../app_program/*.c)` and nothing else.
+  `build/robocar.mk` replaces `build_make/mtkernel_3/app_program/subdir.mk`
+  and points that rule at `core/ drivers/ subsystems/ app/` three levels up
+  (`RC_ROOT := ../../..`), with objects under `build_make/mtkernel_3/robocar/`.
+  It also adds `-I../device/include` for `dev_i2c.h`/`dev_adc.h`, which the
+  port's `INCPATH` never lists. Nothing else in the port's build is touched.
+- `build/patch_port.py` applies the board patches (docs/HARDWARE.md §1):
+  `BOARD_LED_PIN` 16→19; `hw_setting.c` no longer muxes GP0/GP1 to UART,
+  moves I²C0 from GP8/GP9 to GP4/GP5, and stops parking GP27/GP28 as ADC;
+  `i2c_rp2040.c` unit 0 on GP4/GP5; `TM_CONSOLE_UART 0`; `DEVCNF_USE_SER 0`.
+  Idempotent; asserts exactly one match per patch so a port update fails
+  loudly instead of silently half-applying.
+- `build.sh` always passes `CONSOLE=usb_cdc` and `E2U=`. The latter empties
+  the port's elf2uf2 variable so no host `g++` is needed; `picotool uf2
+  convert` produces the image. Toolchain, SDK and picotool are auto-detected
+  under `~/.pico-sdk` (what the VS Code Pico extension installs); only GNU
+  `make` has to be added (`winget install ezwinports.make`).
+- The kernel's `usermain()` is `WEAK_FUNC`, so `app/app_main.c` overrides it
+  with no link tricks. The port's `app_program/` demo is simply not compiled.
+
+Console is the Pico's own USB port; no USB-serial adapter exists on this car.
 
 ## SMP rules, from the port's qualification notes
 
@@ -340,6 +365,6 @@ are `static`. No floating point.
   collision.
 - Prefer integer and fixed-point maths. There is no FPU, and a soft-float
   `atan2` at 100 Hz costs thousands of cycles.
-- Verify with `make -j8 && make SMP=1 -j8`. Both must stay at zero warnings.
+- Verify with `./build/build.sh && ./build/build.sh smp`. Both must stay at zero warnings.
 - The `TODO` markers are the graded work. Help reason about them rather than
   filling them in silently; if you do implement one, say clearly that you have.

@@ -33,32 +33,34 @@ Three of Buddy 4's listed tasks assume one:
 trade-off. Validate it against a ruler on three known humps and quote the
 error in your terrain analysis report.
 
-### 1.2 The stock I²C driver collides with the left motor
+### 1.2 The stock port claims the wrong pins at boot
 
-`device/i2c/sysdepend/rp2040/i2c_rp2040.c` hardcodes its pins:
+> **All of §1.2, §1.3 and §1.5 are applied for you by `build/setup.sh`**
+> (it runs `build/patch_port.py` against the kernel submodule). You do not
+> edit the port by hand. This section explains *what* the script changes and
+> why, so you can recognise the symptoms if it ever hasn't run.
 
-- **I²C0 → GP8 / GP9**. On Robo Pico those are **M1A and M1B**, the left motor.
-- **I²C1 → GP6 / GP7**. GP6 is line sensor 2 in this build, and GP6/GP7 sit on
-  *different* Grove ports (5 and 7) anyway.
+The port sets up pins in two places, and both default to pins this car uses
+for something else:
+
+- `kernel/sysdepend/pico_rp2040/hw_setting.c` has a boot-time pin table that
+  muxes **GP0/GP1 to UART0**, **GP8/GP9 to I²C0** (on Robo Pico those are
+  **M1A and M1B**, the left motor) and parks **GP26/GP27/GP28** as analogue
+  inputs with their digital input buffers switched off.
+- `device/i2c/sysdepend/rp2040/i2c_rp2040.c` repeats the **I²C0 → GP8/GP9**
+  mux when the driver is registered (`DEVCNF_I2C_SETPINFUNC`). Unit 1 would
+  use GP6/GP7, but the port only ever registers unit 0, so it never runs.
 
 The IMU lives on **Grove 3 (GP4 / GP5)**. In RP2040 silicon GP4 can only be
 `I2C0 SDA` and GP5 only `I2C0 SCL` — the function is fixed per pin, not
-configurable — so the IMU is on **unit 0**, opened as `"iica"`, and the fix is
-to re-pin the **unit-0** branch of `i2c_rp2040.c` from GP8/GP9 to GP4/GP5:
-
-```c
-/* was GP8/GP9 */
-out_w(GPIO_CTRL(4), GPIO_CTRL_FUNCSEL_I2C);
-out_w(GPIO(4), GPIO_IE | GPIO_DRIVE_4MA | GPIO_PUE | GPIO_SHEMITT);
-out_w(GPIO_CTRL(5), GPIO_CTRL_FUNCSEL_I2C);
-out_w(GPIO(5), GPIO_IE | GPIO_DRIVE_4MA | GPIO_PUE | GPIO_SHEMITT);
-```
+configurable — so the IMU is on **unit 0**, opened as `"iica"`. The script
+re-pins **both** places from GP8/GP9 to GP4/GP5, drops the GP0/GP1 UART mux
+(the left encoder lives there, §1.5), and drops the GP27/GP28 analogue
+parking (barcode DO and right-encoder B are digital inputs; only GP26 stays
+analogue).
 
 Wire **SDA → GP4** and **SCL → GP5**. Getting these the other way round is
 the most common reason an I²C device never answers.
-
-Leave unit 1 untouched and never open `"iicb"`: its default pins are GP6/GP7,
-which are now line sensor 2 and the right encoder.
 
 ### 1.3 The liveness LED default sits on a pin you need
 
@@ -67,9 +69,9 @@ which this framework uses for line sensor 1. You cannot fall back to the
 Pico W's on-board LED, because it hangs off the CYW43439 radio rather than an
 RP2040 pin.
 
-Fix: change `BOARD_LED_PIN` in
-`include/sys/sysdepend/pico_rp2040/sysdef.h` to **GP19** (matching
-`RC_PIN_STATUS_LED`), and wire an external LED with a series resistor.
+Fix (applied by `build/setup.sh`): `BOARD_LED_PIN` in
+`include/sys/sysdepend/pico_rp2040/sysdef.h` becomes **GP19** (matching
+`RC_PIN_STATUS_LED`). Wire an external LED with a series resistor there.
 
 ### 1.4 The kernel's physical timer is built on the PWM block
 
@@ -88,16 +90,21 @@ untouched by the kernel.
 ### 1.5 The console must be USB, not UART
 
 GP0/GP1 are the port's default UART0 console **and** the left encoder's A/B
-channels. A UART build drives GP0 as TX and the encoder never counts. Every
-image for this car is built with
+channels. A UART build drives GP0 as TX and the encoder never counts. Three
+things together keep UART0 off those pins, and `build/setup.sh` /
+`build/build.sh` do all three:
 
-```sh
-make CONSOLE=usb_cdc PICO_SDK_PATH=<your pico-sdk>
-```
+1. The image is built with `CONSOLE=usb_cdc`, so `tm_printf` and the console
+   telemetry sink come out of the Pico's own USB port.
+2. `config/config_tm.h` gets `TM_CONSOLE_UART 0`. The port otherwise keeps
+   UART0 alive **even in a USB build** as an early-boot/panic mirror, which
+   would still transmit on GP0.
+3. `config/config_device.h` gets `DEVCNF_USE_SER 0`, so the `"sera"` UART
+   device driver is not registered at all, and the boot pin table no longer
+   muxes GP0/GP1 to UART (§1.2).
 
-so `tm_printf` and the console telemetry sink come out of the Pico's own USB
-port. Confirm after the first boot that GP0 is not being driven: with the
-motor off, `drv_encoder_count(RC_SIDE_LEFT)` must stay at zero.
+Confirm after the first boot that GP0 is not being driven: with the motor
+off, `drv_encoder_count(RC_SIDE_LEFT)` must stay at zero.
 
 ---
 
@@ -457,28 +464,46 @@ The 30 ms of flight time costs nothing.
 
 ## 5. Build and flash
 
-```sh
-git clone https://github.com/sirfonzie/mtk3smp-rp2040.git
-cd mtk3smp-rp2040
-# apply the §1.2 I2C patch and the §1.3 BOARD_LED_PIN change
-# drop this tree into app_program/ and add it to the makefile
+The kernel port is a git submodule at `external/mtk3smp-rp2040`, pinned to a
+known commit so everyone builds the same kernel. Three scripts in `build/`
+wrap the port's own `make` tree:
 
-cd build_make
-make CONSOLE=usb_cdc PICO_SDK_PATH=<pico-sdk> -j8          # single core
-make CONSOLE=usb_cdc PICO_SDK_PATH=<pico-sdk> SMP=1 -j8    # dual core
+```sh
+git clone --recurse-submodules <this repo>     # or: git submodule update --init
+./build/setup.sh          # patch the port (§1) and install the app makefile hook
+./build/build.sh          # single core  -> build/out/mtk3pico_smp0_usb_cdc.uf2
+./build/build.sh smp      # dual core    -> build/out/mtk3pico_smp1_usb_cdc.uf2
+./build/flash.sh          # picotool load, with the Pico in BOOTSEL mode
 ```
 
-Hold **BOOTSEL** while plugging in the Pico, then copy the resulting `.uf2`
-from `build_make/` to the `RPI-RP2` drive.
+Hold **BOOTSEL** while plugging in the Pico, then either run `flash.sh` or copy
+the `.uf2` from `build/out/` to the `RPI-RP2` drive.
 
-**`CONSOLE=usb_cdc` is mandatory on this car**, not an option: the UART0 pins
-GP0/GP1 are the left encoder (§1.5). The console then appears as a USB serial
-device on the same cable you flash over, at any baud rate. This is the only
-part of the tree needing the Pico SDK, and it uses TinyUSB only, not the SDK's
-CMake build. If the VS Code Pico extension is installed, the SDK is already at
-`%USERPROFILE%\.pico-sdk\sdk\<version>`.
+**How the pieces fit.** The port compiles `$(wildcard ../app_program/*.c)` —
+one flat directory — so it cannot see `core/`, `drivers/`, `subsystems/` and
+`app/` on its own. `build/robocar.mk` is a replacement for the port's
+`build_make/mtkernel_3/app_program/subdir.mk` that points the same compile
+rule at those four directories (three levels up, in this repo) and adds
+`device/include` to their include path, which the port's own `INCPATH` omits.
+`setup.sh` copies it into place; the port's demo `app_program/` is then simply
+not compiled, and `app/app_main.c`'s `usermain()` overrides the kernel's weak
+default. `build.sh` always passes `CONSOLE=usb_cdc` (§1.5), finds the
+toolchain and Pico SDK under `~/.pico-sdk` when the VS Code Pico extension put
+them there, and converts the `.elf` with `picotool` instead of the port's
+`elf2uf2`, which would need a host `g++`.
 
-Toolchain: `arm-none-eabi-gcc` (baseline 13.2.1) and a host `g++`.
+**Tools:** `arm-none-eabi-gcc` (13.2.1 or newer; 15.2 verified), GNU `make`
+(Windows: `winget install ezwinports.make`, then reopen Git Bash), the Pico
+SDK (for TinyUSB only — not its CMake build), and `picotool`. The VS Code
+Raspberry Pi Pico extension installs all but `make`.
+
+**After `git submodule update`** (the pinned commit changed), run `setup.sh`
+again — it re-applies the patches and re-installs the hook, and is safe to run
+any number of times. `.gitmodules` marks the submodule `ignore = dirty` so the
+patched files don't show as changes in `git status`.
+
+Verified clean: both profiles build with 0 warnings (SMP=0: 62,784 B text,
+20,892 B bss).
 
 **Start on `SMP=0`.** Get the car working on one core first. The single-core
 build is the port's default and its conservative profile, and every bug you

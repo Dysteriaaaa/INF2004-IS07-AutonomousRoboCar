@@ -174,139 +174,118 @@ voltage divider — covered in §0.6 — everything below is safe to retry).
 
 #### 0.5.1 Install the tools (once per laptop)
 
-You need four things. Exact install commands vary by OS — search
-"install X on Windows/Mac/Linux" if the short version below isn't enough,
-or ask a teammate who's already done it rather than guessing blindly.
+The easy path: **install the Raspberry Pi Pico extension in VS Code** and
+let it run its first-time setup. It downloads the ARM compiler, the Pico
+SDK and `picotool` into `%USERPROFILE%\.pico-sdk\` (`~/.pico-sdk` on
+Mac/Linux), and this project's build script finds them there
+automatically. Then you need only two more things:
 
-1. **Git** — lets you download (clone) the two repositories.
-   Windows: install "Git for Windows" from git-scm.com — this also gives
-   you **Git Bash**, the terminal you'll use for every command in this
-   guide. Mac: `brew install git` (or it's often preinstalled). Linux:
-   `sudo apt install git` (Debian/Ubuntu) or your distro's equivalent.
-2. **`arm-none-eabi-gcc`, baseline version 13.2.1** — the ARM compiler.
-   This usually comes as part of the "GNU Arm Embedded Toolchain" or
-   "arm-none-eabi-gcc" package. Install it, then confirm it's on your
-   `PATH` (i.e. your terminal can find it without you typing the full
-   folder path) by running:
-   ```sh
-   arm-none-eabi-gcc --version
-   ```
-   If that prints a version number, you're set. If it says "command not
-   found," the install either failed or didn't add itself to your `PATH`
-   — reinstall, or manually add its `bin` folder to your `PATH`
-   environment variable.
-3. **A host C++ compiler (`g++`)** — part of the build for a couple of
-   host-side tools the port uses. On Windows this usually comes with the
-   arm-none-eabi-gcc bundle or MinGW; on Mac it's part of Xcode Command
-   Line Tools (`xcode-select --install`); on Linux, `sudo apt install
-   g++`.
-4. **The Raspberry Pi Pico SDK** — only a small slice of it is used (the
-   TinyUSB library that puts the console on the Pico's USB port), but that
-   slice is mandatory on this car, because the UART pins are taken by the
-   left encoder. If you have the VS Code Pico extension installed you
-   already have the SDK at `%USERPROFILE%\.pico-sdk\sdk\<version>`;
-   otherwise clone `raspberrypi/pico-sdk` anywhere and note the path.
-5. **A serial terminal program** to read the console (details in §0.5.6).
-   No USB-serial adapter is needed — the console comes out of the same USB
-   cable you flash over.
+1. **Git** — downloads the code. Windows: "Git for Windows" from
+   git-scm.com, which also gives you **Git Bash**, the terminal to use for
+   every command in this guide. Mac: `brew install git`. Linux:
+   `sudo apt install git`.
+2. **GNU `make`** — the tool that runs the compiler in the right order.
+   The Pico extension does *not* install it.
+   - Windows, in PowerShell or a terminal: `winget install ezwinports.make`
+     then **close and reopen Git Bash**. Check with `make --version`
+     (should say 4.x).
+   - Mac: `xcode-select --install`. Linux: `sudo apt install make`.
 
-#### 0.5.2 Get the two repositories onto your laptop
+If you'd rather not use the extension, install `arm-none-eabi-gcc` (13.2
+or newer) and `picotool` yourself, clone `raspberrypi/pico-sdk` somewhere,
+and tell the build where it is with `PICO_SDK_PATH=/path/to/pico-sdk`.
+Only TinyUSB out of the SDK is used — it's what puts the console on the
+Pico's USB port — but that part is mandatory here because the UART pins
+belong to the left wheel encoder.
 
-Open your terminal (Git Bash on Windows) and pick a folder to work in,
-e.g. your Desktop. Then:
+You do **not** need a host C++ compiler (the build uses `picotool` for
+the last step instead of the port's own tool) and you do **not** need a
+USB-serial adapter (the console rides the same USB cable you flash over).
+
+#### 0.5.2 Get the code — one clone, both repositories
+
+Two pieces of code end up on the Pico: this repo (the car) and the
+**micro T-Kernel port** (`mtk3smp-rp2040` — the operating system plus the
+`make`-based build system). You don't download the port separately: it's
+wired in as a **git submodule** at `external/mtk3smp-rp2040`, pinned to
+one exact commit so everyone on the team builds the identical kernel.
+
+Open Git Bash, go to the folder you want the project in, and:
 
 ```sh
-# 1. Download the RTOS port. This is the operating system + the actual
-#    build system (Makefiles) that knows how to compile everything.
-git clone https://github.com/sirfonzie/mtk3smp-rp2040.git
-cd mtk3smp-rp2040
-
-# 2. This project's own code should already be on your laptop (you're
-#    reading this file from inside it). Copy or clone it into place at
-#    app_program/robocar/ inside the port repo you just downloaded:
-#    e.g. on Windows/Git Bash:
-#    cp -r "/path/to/your/INF2004-IS07-AutonomousRoboCar" app_program/robocar
-
-# 3. The port ships its own sample program in app_program/*.c — move
-#    those files out of the way so the build uses this project's
-#    usermain (app/app_main.c) instead of the port's own demo.
+git clone --recurse-submodules https://github.com/Dysteriaaaa/INF2004-IS07-AutonomousRoboCar.git
+cd INF2004-IS07-AutonomousRoboCar
 ```
 
-If you're not sure of the exact folder layout the port expects, check
-`mtk3smp-rp2040`'s own `README`/`PORT_RP2040.md` — the important point is
-just that this repo's contents end up as a sub-folder the port's Makefile
-is told to build, and the port's own sample `app_program/*.c` files are
-moved aside so they don't conflict.
+Already cloned it without `--recurse-submodules`? Then the
+`external/mtk3smp-rp2040` folder is empty — fix with:
 
-#### 0.5.3 Apply the two required patches — do this before building
+```sh
+git submodule update --init
+```
 
-These fix real hardware conflicts on this specific carrier board (Robo
-Pico). Skipping them doesn't crash the build — it silently produces a
-robot that can't talk to its IMU, or has no status LED. Full detail and
-exact code is in `docs/HARDWARE.md` §1.2 and §1.3; the short version:
+#### 0.5.3 Set up — patches the port and wires our code into its build
 
-1. **I²C pin patch.** The IMU (Buddy 4's hardware) sits on Grove 3, which
-   is GP4/GP5. In the RP2040 chip those two pins can only ever be I²C
-   *unit 0*'s SDA and SCL — it's fixed in silicon. But the port's stock
-   I²C driver (`device/i2c/sysdepend/rp2040/i2c_rp2040.c`) wires unit 0
-   to GP8/GP9 by default, which on the Robo Pico are the left motor. Open
-   that file and change the **unit-0** pin setup from GP8/GP9 to GP4/GP5
-   — `docs/HARDWARE.md` §1.2 has the exact lines to change.
-2. **Status LED pin patch.** The port defaults its "liveness LED" pin
-   (`BOARD_LED_PIN`) to GP16, but this project needs GP16 for line sensor
-   1 (Buddy 3's hardware). Open
-   `include/sys/sysdepend/pico_rp2040/sysdef.h` and change
-   `BOARD_LED_PIN` to GP19 instead, then wire an external LED (+ resistor)
-   to GP19 — the on-board Pico W LED can't be used here because it's
-   wired to the WiFi radio chip, not a normal pin.
+```sh
+./build/setup.sh
+```
 
-**Why this matters even if you're not Buddy 4 or Buddy 5:** if you skip
-these and just try to build, the code will compile fine and look like
-it works — the failure only shows up later as "the IMU never responds"
-or "the LED never blinks," which is a much more confusing bug to chase
-down than just doing the patch now.
+One command, run once after cloning (and again any time the submodule is
+updated). It does three things you'd otherwise have to do by hand:
+
+1. **Fetches the kernel port** if the submodule isn't there yet.
+2. **Patches five lines of the port** so it stops claiming pins this car
+   needs. The stock port switches GP0/GP1 to a UART console (that's our
+   left encoder), GP8/GP9 to I²C (that's the left motor), parks GP27/GP28
+   as analogue inputs (barcode DO and right-encoder B), and puts the
+   status LED on GP16 (line sensor 1). Each patch is explained in
+   `docs/HARDWARE.md` §1 and applied by `build/patch_port.py`; running it
+   twice is harmless.
+3. **Installs the build hook.** The port only compiles one flat
+   `app_program/` folder, so it can't see our `core/`, `drivers/`,
+   `subsystems/` and `app/`. `build/robocar.mk` teaches it to; `setup.sh`
+   copies that file into the port. The port's own demo program is then
+   simply not built — our `app/app_main.c` supplies `usermain()` instead.
+
+**Why this matters even if you're not touching hardware:** skip it and
+the build still *succeeds* — you get a robot whose IMU never answers,
+whose LED never blinks and whose left wheel never counts. Far more
+confusing to chase later than to run one script now.
 
 #### 0.5.4 Build it
 
-From inside the port repo (`mtk3smp-rp2040`), in your terminal:
-
 ```sh
-cd build_make
-make CONSOLE=usb_cdc PICO_SDK_PATH=/c/Users/<you>/.pico-sdk/sdk/<version> -j8
+./build/build.sh          # single core — always start here
+./build/build.sh smp      # dual core, once single core works
 ```
 
-What this does, in plain terms: `make` reads the build recipe, and for
-every `.c` file in this project it runs the ARM compiler to turn it into
-machine code, then links all those pieces together into one program. The
-`-j8` just means "use up to 8 CPU cores at once to go faster" — safe to
-lower to `-j4` or drop entirely on a weaker laptop, it'll just take
-longer.
+What this does, in plain terms: it finds the ARM compiler and Pico SDK
+(on `PATH`, or under `~/.pico-sdk` where the VS Code extension put them),
+runs the port's `make` with the settings this car needs, and turns the
+result into a `.uf2` file with `picotool`. Every `.c` file in this project
+gets compiled to machine code and linked together with the kernel into one
+program.
 
-**`CONSOLE=usb_cdc` is not optional on this car.** GP0 and GP1 — the pins
-the port would normally use for a wired serial console — are the left
-wheel encoder here. A build without that flag drives GP0 as a serial
-transmit pin and the left encoder never counts. `PICO_SDK_PATH` tells the
-build where to find the Pico SDK from §0.5.1 (use forward slashes, even on
-Windows, when typing it in Git Bash). Put both settings in a tiny script
-or a shell alias so you never forget them.
+Two settings are baked into the script on purpose, so you can never
+forget them: **`CONSOLE=usb_cdc`** (GP0/GP1 are the left encoder, so the
+console must use USB — `docs/HARDWARE.md` §1.5) and **`E2U=`** (skips the
+port's own ELF-to-UF2 tool, which would need a C++ compiler you probably
+don't have; `picotool` does that job instead).
 
-**What success looks like:** the command finishes with **no errors and
-zero warnings**, and you'll find a new `.uf2` file inside `build_make/`.
-`SMP=0` means "single-core" — the simplest configuration, and the one to
-always get working first. Once that's solid, you can also try dual-core
-with:
-
-```sh
-make CONSOLE=usb_cdc PICO_SDK_PATH=<same path> SMP=1 -j8
-```
+**What success looks like:** the last line says
+`== flash this : build/out/mtk3pico_smp0_usb_cdc.uf2`, and above it there
+were **no errors and zero warnings**. That `.uf2` is the file you put on
+the Pico in the next step. (Verified: both profiles build clean with the
+15.2 toolchain.)
 
 **If the build fails:** read the *first* error message, not the last —
 one real error often causes a cascade of confusing follow-on errors below
-it. The most common beginner mistakes are: `arm-none-eabi-gcc` not
-installed/on `PATH` (§0.5.1), this repo not placed in the right folder
-(§0.5.2), or a patch from §0.5.3 typed slightly wrong. If you truly get
-stuck, screenshot the *first* error and ask a teammate or search the exact
-error text — don't just retry the same command hoping it changes.
+it. The most common beginner mistakes are: `make` not installed or Git
+Bash not reopened after installing it (§0.5.1), the submodule folder
+empty (§0.5.2), or `setup.sh` not run (§0.5.3 — the script tells you if
+so). If you truly get stuck, screenshot the *first* error and ask a
+teammate or search the exact error text — don't just retry the same
+command hoping it changes.
 
 #### 0.5.5 Flash it onto the actual Pico
 
@@ -317,9 +296,11 @@ error text — don't just retry the same command hoping it changes.
    drive named `RPI-RP2`, the same way a USB flash drive would appear.
    If nothing appears, unplug and repeat from step 1 — timing the button
    press right sometimes takes a couple of tries.
-5. **Copy the `.uf2` file onto that drive** — drag-and-drop the `.uf2`
-   from `build_make/` onto `RPI-RP2` in your file explorer, the same as
-   copying a file onto a USB stick.
+5. **Copy the `.uf2` file onto that drive** — drag-and-drop
+   `build/out/mtk3pico_smp0_usb_cdc.uf2` onto `RPI-RP2` in your file
+   explorer, the same as copying a file onto a USB stick. (Or, with the
+   Pico in BOOTSEL mode, run `./build/flash.sh` — same result, no
+   dragging.)
 6. The Pico will automatically reset and start running your program the
    moment the copy finishes — the `RPI-RP2` drive will disappear. That's
    normal, not an error.
@@ -359,8 +340,8 @@ no extra wires.
 **If nothing appears:** the port only exists while the program is
 running, so it vanishes during BOOTSEL/flashing and comes back after —
 close and reopen your terminal program after each reflash. And if the
-port never appears at all, the build was made without `CONSOLE=usb_cdc`;
-rebuild with it (§0.5.4).
+port never appears at all, the image wasn't built by `build/build.sh`
+(which always sets `CONSOLE=usb_cdc`); rebuild with it (§0.5.4).
 
 #### 0.5.7 Now bring the hardware up, one piece at a time
 
@@ -419,60 +400,37 @@ extension's own build folder, etc.). **This project has none of that.**
 It's built by the RTOS's own hand-written `Makefile`s instead — no CMake,
 no Ninja, no `CMakeLists.txt` anywhere in this tree. So the extension's
 one-click buttons simply won't find anything to build here, and that's
-expected, not a sign something's broken. Here's how what you already know
-maps onto this project:
+expected, not a sign something's broken. The good news: the extension
+already installed everything the build needs except `make`, and the
+scripts in `build/` know where it put them. Here's how what you already
+know maps onto this project:
 
-- **"Where's my toolchain?"** You don't need to reinstall
-  `arm-none-eabi-gcc` — the Pico extension already installed one for you,
-  under `%USERPROFILE%\.pico-sdk\toolchain\<version>\bin\` on Windows
-  (the extension keeps its own private copies of the compiler, CMake,
-  Ninja, OpenOCD and `picotool`, one versioned folder per tool, so it
-  never depends on anything being on your system `PATH`). First check
-  whether it's already reachable from a plain terminal:
-  ```sh
-  arm-none-eabi-gcc --version
-  ```
-  If that works, you're done — skip straight to §0.5.2. If it says
-  "command not found," either add that `bin` folder to your `PATH`, or
-  open the **"Pico - Developer Command Prompt"** shortcut the extension
-  adds to your Start Menu — it's a terminal window pre-configured with
-  every one of those tool paths already set, and it works fine for typing
-  the `make` commands below even though this isn't a CMake project.
-- **Instead of "New C/C++ Project from Pico SDK,"** follow §0.5.2/§0.5.3
-  above: clone the `mtk3smp-rp2040` RTOS port repo, drop this project's
-  folder into it, and apply the two hardware patches. There's no
-  extension wizard for this step — it's just `git clone` and copying a
-  folder.
-- **Instead of clicking "Compile Project,"** open a terminal (the Pico
-  Developer Command Prompt above, or VS Code's own integrated terminal —
-  ``Ctrl+` ``) in the `mtk3smp-rp2040/build_make` folder and run
-  `make -j8`, exactly as in §0.5.4. It's the same compiler under the
-  hood, just driven by a `Makefile` instead of the extension's CMake
-  integration.
-- **Instead of clicking "Run Project (USB),"** which uses `picotool`/CMake
-  wiring that doesn't exist in this tree, either **drag-and-drop the
-  `.uf2` file onto the `RPI-RP2` drive** in BOOTSEL mode as described in
-  §0.5.5, or, if `picotool` is already on your `PATH` from the extension
-  install, you can flash from the terminal instead once the Pico is in
-  BOOTSEL mode:
-  ```sh
-  picotool load -f build_make/<the .uf2>
-  picotool reboot
-  ```
-  Either way gets you the same result — there just isn't a single button
-  for it here.
+- **"Where's my toolchain?"** Already installed — the extension keeps its
+  own copies of the compiler, the SDK and `picotool` under
+  `%USERPROFILE%\.pico-sdk\`, one versioned folder per tool.
+  `build/build.sh` looks there automatically (newest version wins), so you
+  don't need to touch your `PATH`. The one thing to add is GNU `make`:
+  `winget install ezwinports.make`, then reopen Git Bash.
+- **Instead of "New C/C++ Project from Pico SDK,"** clone this repo with
+  `--recurse-submodules` and run `./build/setup.sh` (§0.5.2–§0.5.3). The
+  kernel port is a submodule, so there's nothing to download or copy by
+  hand.
+- **Instead of clicking "Compile Project,"** run `./build/build.sh` from
+  Git Bash — or from VS Code's integrated terminal (``Ctrl+` ``) with the
+  Git Bash profile selected. Same compiler under the hood, driven by a
+  `Makefile` instead of the extension's CMake integration.
+- **Instead of clicking "Run Project (USB),"** put the Pico in BOOTSEL
+  mode and run `./build/flash.sh` (it calls the extension's own
+  `picotool`), or drag `build/out/mtk3pico_smp0_usb_cdc.uf2` onto the
+  `RPI-RP2` drive. Same result — there just isn't a single button for it.
 - **The extension's built-in Serial Monitor panel works as-is.** The
-  console on this car is already routed over the Pico's own USB port
-  (that's what the mandatory `CONSOLE=usb_cdc` flag does), which is
-  exactly the port the Serial Monitor panel watches. The `PICO_SDK_PATH`
-  the build needs is the SDK the extension already installed for you:
-  ```sh
-  make CONSOLE=usb_cdc PICO_SDK_PATH=/c/Users/<you>/.pico-sdk/sdk/<version> -j8
-  ```
-  One caveat from `docs/HARDWARE.md` §4.1: the USB console is the part of
-  the RTOS port flagged as less battle-tested. If output ever looks
-  garbled, suspect that before suspecting your own code — but there is no
-  UART fallback on this car, because GP0/GP1 are the left encoder.
+  console on this car is routed over the Pico's own USB port (that's what
+  the `CONSOLE=usb_cdc` setting baked into `build.sh` does), which is
+  exactly the port the Serial Monitor panel watches. One caveat from
+  `docs/HARDWARE.md` §4.1: the USB console is the part of the RTOS port
+  flagged as less battle-tested. If output ever looks garbled, suspect
+  that before suspecting your own code — but there is no UART fallback on
+  this car, because GP0/GP1 are the left encoder.
 
 Everything after this point — bring-up order, per-buddy work — is
 identical no matter which path you used to get the `.uf2` flashed.
@@ -4184,5 +4142,6 @@ when a watch reading is close enough to escalate into a real
 - **Before adding any interrupt-handling code**, read §0.2 above and copy
   the pattern in `drv_ultrasonic.c` — record-and-flag in the ISR, do the
   real work in a deferred task.
-- **Build and check for warnings after every change**: `make -j8` (single
-  core) and `make SMP=1 -j8` (dual core). Both must stay at zero warnings.
+- **Build and check for warnings after every change**: `./build/build.sh`
+  (single core) and `./build/build.sh smp` (dual core). Both must stay at
+  zero warnings.

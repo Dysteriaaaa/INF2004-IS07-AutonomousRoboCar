@@ -13,3 +13,6 @@ CMakeUserPresets.json
 
 # Office lock files
 ~$*
+
+# firmware images from build/build.sh
+build/out/

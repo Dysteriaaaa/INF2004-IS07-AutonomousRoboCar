@@ -1,2 +1,7 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# build scripts must stay LF: Git Bash and make choke on CRLF
+*.sh text eol=lf
+*.mk text eol=lf
+build/*.py text eol=lf
