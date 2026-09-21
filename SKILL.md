@@ -65,7 +65,7 @@ the PNGs, and re-run them:
 
 | Script | Output | Review copy | What it shows |
 |---|---|---|---|
-| `gen_pin_map.py` | `robopico_pin_map.png` | `d2_pin_layout.png` | Pin-by-pin reference in the style of the official Pico pinout: one row per header pin, with function, Robo Pico connector and our device |
+| `gen_pin_map.py` | `robopico_pin_map.png` | `d2_pin_layout.png` | The Robo Pico drawn to scale (terminals/servo top, Grove 1 left, Grove 7 right, Grove 2-6 bottom, headers + socket centre) with poster-style chips fanning out from each connector: GPIO, function in use, device |
 | `gen_board_view.py` | `robopico_board_view.png` | `d2b_board_view.png` | The same wiring drawn on the physical board, for finding the right socket |
 
 Board geometry and port assignments came from the Cytron Robo Pico datasheet

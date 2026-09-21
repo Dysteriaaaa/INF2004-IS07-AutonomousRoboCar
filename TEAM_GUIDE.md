@@ -349,12 +349,12 @@ port never appears at all, the image wasn't built by `build/build.sh`
 **Before you plug in a single wire, look at the two pin diagrams in
 [`docs/img/hw/`](img/hw/):**
 
-- [`robopico_pin_map.png`](img/hw/robopico_pin_map.png) — the pin-by-pin
-  reference, laid out like the official Raspberry Pi Pico pinout poster.
-  One row per physical pin, reading outward: what we connect, which Robo
-  Pico port it lands on, the pin's function (UART / I²C / PWM / ADC /
-  plain GPIO), the GPIO number, and the header pin number. Use this when
-  you are reading code and want to know what `GP3` actually is.
+- [`robopico_pin_map.png`](img/hw/robopico_pin_map.png) — the Robo Pico
+  drawn as it looks on the bench, with colour-coded chips fanning out from
+  every connector we use: the GPIO number, the function in use (I²C / ADC
+  / PWM) and the device on that socket. Find the socket on the picture,
+  follow its chips, and you know what plugs in and what `GP3` means in
+  the code. This is the one in the design review.
 - [`robopico_board_view.png`](img/hw/robopico_board_view.png) — the same
   information drawn onto a picture of the actual board. Use this when you
   are holding the board and want to know which socket a device plugs

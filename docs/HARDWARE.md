@@ -112,10 +112,12 @@ off, `drv_encoder_count(RC_SIDE_LEFT)` must stay at zero.
 
 ![Robo Pico hardware integration pin map](img/hw/robopico_pin_map.png)
 
-Pin-by-pin reference, in the style of the official Pico pinout: one row per
-physical header pin, showing the Pico function, the Robo Pico connector that
-pin is wired to, and what this project connects there. Green is in use, grey
-is spare, amber flags a conflict covered in §1.
+The Robo Pico drawn as it is on the bench — motor terminals and servo header
+along the top, Grove 1 on the left edge, Grove 7 on the right edge, Grove 2–6
+along the bottom, the Pico socket and its two 20-way headers in the middle —
+with poster-style chips fanning out from every connector this car uses: the
+GPIO number, the function in use (I²C / ADC / PWM) and the device on that
+socket. Faded chips are parts of the board this car does not use.
 
 ![Robo Pico board view](img/hw/robopico_board_view.png)
 
