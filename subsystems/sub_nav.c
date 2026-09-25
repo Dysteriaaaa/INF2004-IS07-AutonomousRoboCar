@@ -187,6 +187,50 @@ static void on_barcode(const rc_event_t *evt, void *ctx)
     }
 }
 
+/* A command that arrived from outside the sensor path: Buddy 1's remote
+ * channel (WiFi/MQTT), delivered as RC_EVT_COMMAND_RX. Runs on the fast
+ * dispatcher like every other handler here, so it is free to drive the
+ * state machine directly.
+ *
+ * STOP is honoured from any state - it is the remote kill switch. Every
+ * other command is a manoeuvre that only makes sense while line
+ * following; ignoring it mid-avoidance keeps a stray message from
+ * yanking the car off a bypass. The execution mirrors on_barcode() so a
+ * remote "turn left" and a barcode "turn left" behave identically. */
+static void on_command_rx(const rc_event_t *evt, void *ctx)
+{
+    (void)ctx;
+
+    if (evt->u.command.command == RC_CMD_STOP) {
+        tm_printf((UB *)"[nav] remote STOP\n");
+        enter(RC_NAV_STOPPED);
+        return;
+    }
+
+    if (state != RC_NAV_FOLLOWING) {
+        tm_printf((UB *)"[nav] remote cmd ignored (busy)\n");
+        return;
+    }
+
+    enter(RC_NAV_EXECUTING_CMD);
+
+    switch (evt->u.command.command) {
+    case RC_CMD_TURN_LEFT:
+        (void)sub_motion_turn_deg(-TURN_DEG, cmd_done, NULL);
+        break;
+    case RC_CMD_TURN_RIGHT:
+        (void)sub_motion_turn_deg(TURN_DEG, cmd_done, NULL);
+        break;
+    case RC_CMD_U_TURN:
+        (void)sub_motion_turn_deg(UTURN_DEG, cmd_done, NULL);
+        break;
+    case RC_CMD_GO_STRAIGHT:
+    default:
+        enter(RC_NAV_FOLLOWING);
+        break;
+    }
+}
+
 static void on_ultra(const rc_event_t *evt, void *ctx)
 {
     (void)ctx;
@@ -289,6 +333,10 @@ rc_result_t sub_nav_init(void)
                              on_line_lost, NULL);
     (void)rc_event_subscribe(RC_EVT_LINE_SAMPLE, RC_LANE_SLOW,
                              on_junction, NULL);
+    /* Buddy 1's remote command channel. Fast lane: a remote STOP must not
+     * queue behind telemetry. */
+    (void)rc_event_subscribe(RC_EVT_COMMAND_RX, RC_LANE_FAST,
+                             on_command_rx, NULL);
 
     state = RC_NAV_IDLE;
     return RC_OK;
@@ -310,4 +358,14 @@ rc_result_t sub_nav_stop(void)
 rc_nav_state_t sub_nav_state(void)
 {
     return state;
+}
+
+rc_result_t sub_nav_inject_command(rc_nav_cmd_t cmd, int32_t arg)
+{
+    rc_event_t evt;
+
+    evt.id                = RC_EVT_COMMAND_RX;
+    evt.u.command.command = cmd;
+    evt.u.command.arg     = arg;
+    return rc_event_publish(&evt);
 }

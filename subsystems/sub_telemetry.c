@@ -63,8 +63,12 @@
  *  It's a C string literal (text in double quotes); #define-ing it here
  *  means every function below builds its topic as TOPIC_BASE "/leafname"
  *  instead of retyping "car/01" everywhere.
+ *
+ *  The literal now lives in rc_config.h (RC_TOPIC_BASE) so the MQTT sink's
+ *  command-subscribe topic (RC_TOPIC_CMD) and these publish topics share
+ *  one definition and cannot drift apart.
  */
-#define TOPIC_BASE      "car/01"
+#define TOPIC_BASE      RC_TOPIC_BASE
 
 /* --- Module-level (file-scope) state below ---
  * `static` on a variable at file scope means it is private to this .c
@@ -458,6 +462,48 @@ rc_result_t sub_telemetry_publish_event(const rc_event_t *evt)
  * "ignore this" lines. The `for (;;) { ... }` is an intentional infinite
  * loop -- this task runs for the entire lifetime of the program, just
  * like every other subsystem's background task. */
+/*
+ *  Connection recovery, called once per tick before publishing.
+ *
+ *  The console sink is always up, so on the default build this returns
+ *  true immediately and costs nothing. For a network sink it is the whole
+ *  reconnect story: while the link is up, keep the backoff reset; on a
+ *  drop, close and wait a growing delay (RC_NET_BACKOFF_MIN..MAX,
+ *  doubling) before a single reopen attempt, then return whether we are
+ *  up again. The wait is a tk_dly_tsk, never a busy retry loop, so a dead
+ *  link stalls only this lowest-priority task and never the control path
+ *  (TEAM_GUIDE.md §1.3). `backoff` is static so the delay persists across
+ *  ticks and grows only while the link stays down.
+ */
+static bool telemetry_link_ok(void)
+{
+    static uint32_t backoff = RC_NET_BACKOFF_MIN_MS;
+
+    if ((sink != NULL) && sink->is_up()) {
+        backoff = RC_NET_BACKOFF_MIN_MS;    /* healthy: reset the timer */
+        return true;
+    }
+
+    if (sink == NULL) {
+        return false;
+    }
+
+    /* Link is down. Tear the transport down, wait, then try once to
+     * bring it back. tx_fail already counted the send we skipped. */
+    (void)sink->close();
+    tk_dly_tsk((INT)backoff);
+    (void)sink->open();
+
+    /* Next drop waits longer, capped, so a broker that never comes back
+     * does not spin the CPU or flood the logs. */
+    backoff <<= 1;
+    if (backoff > RC_NET_BACKOFF_MAX_MS) {
+        backoff = RC_NET_BACKOFF_MAX_MS;
+    }
+
+    return sink->is_up();
+}
+
 static void telemetry_task(INT stacd, void *exinf)
 {
     uint32_t ticks = 0U;
@@ -484,11 +530,12 @@ static void telemetry_task(INT stacd, void *exinf)
          * by Buddy 4, for the same pattern). */
         tk_dly_tsk(RC_PERIOD_TELEM_MS);
 
-        /*
-         *  TODO Buddy 1: connection recovery belongs here. Check
-         *  sink->is_up(), and on a drop, close, wait with a backoff, and
-         *  reopen. Do the backoff with tk_dly_tsk, never a retry loop.
-         */
+        /* Keep the transport alive. If it is down this closes, backs off
+         * and reopens, and we skip publishing this tick rather than
+         * hammer a dead sink (send() would only count another failure). */
+        if (!telemetry_link_ok()) {
+            continue;
+        }
 
         publish_state();   /* send the per-tick status message every time */
 
@@ -596,4 +643,27 @@ rc_result_t sub_telemetry_on_command(sub_telemetry_cmd_cb_t cb, void *ctx)
     cmd_cb  = cb;
     cmd_ctx = ctx;
     return RC_OK;
+}
+
+/* Called by a receiving transport (the MQTT sink) when it has decoded an
+ * inbound command. If somebody registered a callback we hand it straight
+ * over; otherwise we drop the command onto the event bus as
+ * RC_EVT_COMMAND_RX, which sub_nav subscribes to on the fast lane. Going
+ * through the bus (rather than calling sub_nav directly from here) keeps
+ * this module independent of the mission logic and keeps every write to
+ * nav state on the one dispatcher task. rc_event_publish() is non-blocking
+ * and safe from the transport's context. */
+rc_result_t sub_telemetry_deliver_command(rc_nav_cmd_t cmd, int32_t arg)
+{
+    rc_event_t evt;
+
+    if (cmd_cb != NULL) {
+        cmd_cb(cmd, arg, cmd_ctx);
+        return RC_OK;
+    }
+
+    evt.id              = RC_EVT_COMMAND_RX;
+    evt.u.command.command = cmd;
+    evt.u.command.arg     = arg;
+    return rc_event_publish(&evt);
 }
