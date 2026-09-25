@@ -155,4 +155,51 @@
 #define RC_EVENT_RING_SZ        (64U)   /* must be a power of two */
 #define RC_EVENT_MAX_SUBS       (32U)   /* total subscriptions per lane */
 
+/* ------------------------------------------------------------------ *
+ *  Buddy 1 - communication, command and telemetry
+ *
+ *  RC_NET_ENABLE is the master switch for the WiFi radio path. It is OFF
+ *  by default so the graded mission image builds and links exactly as
+ *  before, with telemetry going to the USB console. Turn it on ONLY in a
+ *  build whose port links the Pico W WiFi profile (pico_cyw43_arch_lwip_
+ *  threadsafe_background) and the lwIP MQTT app - see
+ *  docs/buddy1-telemetry/MQTT.md. With it off, the UDP and MQTT sink
+ *  accessors return NULL and pull in no network headers at all.
+ * ------------------------------------------------------------------ */
+
+#ifndef RC_NET_ENABLE
+#define RC_NET_ENABLE           (0)
+#endif
+
+/* Topic namespace. One base per car so several cars can share a broker:
+ * car/+/state addresses every car, car/01/# just this one. Buddy 1 owns
+ * this; sub_telemetry.c builds every publish topic from it. */
+#define RC_TOPIC_BASE           "car/01"
+/* The one topic we subscribe to, for inbound commands. */
+#define RC_TOPIC_CMD            RC_TOPIC_BASE "/cmd"
+
+/* WiFi association. Fill SSID/pass for your demo hotspot. Country matters
+ * for the CYW43 regulatory domain; keep it correct for legal TX power. */
+#define RC_WIFI_SSID            "robocar-net"
+#define RC_WIFI_PASS            "changeme123"
+#define RC_WIFI_COUNTRY         "SG"
+#define RC_WIFI_CONNECT_TMO_MS  (15000U)
+
+/* MQTT broker (e.g. a laptop running mosquitto). An IPv4 literal avoids a
+ * DNS round trip the port's lwIP profile may not have configured. */
+#define RC_MQTT_BROKER_IP       "192.168.4.1"
+#define RC_MQTT_BROKER_PORT     (1883U)
+#define RC_MQTT_CLIENT_ID       "robocar-01"
+#define RC_MQTT_KEEPALIVE_S     (10U)
+
+/* UDP telemetry destination, used by the intermediate UDP sink (prove the
+ * network path before bringing MQTT up). Point it at the listening host. */
+#define RC_UDP_DEST_IP          "192.168.4.2"
+#define RC_UDP_DEST_PORT        (5005U)
+
+/* Reconnect backoff for the telemetry task. On a dropped link it closes,
+ * waits (doubling from MIN up to MAX), and reopens - never a busy loop. */
+#define RC_NET_BACKOFF_MIN_MS   (500U)
+#define RC_NET_BACKOFF_MAX_MS   (8000U)
+
 #endif /* RC_CONFIG_H */

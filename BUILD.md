@@ -350,8 +350,9 @@ Everything senses, the car stays still. **Good:** a
 when you move the car by hand, a `[telem] car/01/status` heartbeat every
 ~2 s, and `[bench] dropped fast=0 slow=0` every 5 s. A non-zero dropped
 count means a consumer is too slow for the event ring — your first real
-bug. Once your UDP sink exists, this bench is where you point a `netcat`
-listener on your laptop and watch the same lines arrive over WiFi.
+bug. With WiFi enabled (§5.11) this is also where you point a `netcat`
+listener (UDP sink) or `mosquitto_sub` (MQTT sink) and watch the same
+lines arrive over the air.
 
 ### 5.10 The whole car — the mission image
 
@@ -363,6 +364,43 @@ avoiding → recovering). `TEAM_GUIDE.md` §2.2 explains those states.
 
 The mission uses **every** buddy's part at once. If something is wrong,
 go back to the bench that covers it rather than debugging the whole car.
+
+### 5.11 Turning on WiFi telemetry (`RC_NET_ENABLE`)
+
+By default telemetry goes to the **USB console** and the radio is off. That
+is the reliable demo baseline — you do not need WiFi for anything above,
+and the graded mission image builds with the radio compiled out.
+
+Turning it **on** sends the exact same messages over **WiFi/MQTT** instead,
+and lets the car receive commands on `car/01/cmd`. It takes three steps:
+
+1. **Give the port a WiFi build.** The Pico W radio, lwIP and the MQTT
+   client are a *development profile* of the `mtk3smp-rp2040` port — they
+   are not linked in the normal build. Enable them once as described in
+   [`docs/buddy1-telemetry/MQTT.md`](docs/buddy1-telemetry/MQTT.md)
+   ("Enabling the radio path"). This is the only fiddly step, and it is a
+   one-time change to the port, not to the car code.
+
+2. **Fill in your network.** In `core/rc_config.h`, set `RC_WIFI_SSID`,
+   `RC_WIFI_PASS`, `RC_WIFI_COUNTRY`, and the broker/listener addresses
+   (`RC_MQTT_BROKER_IP`, `RC_UDP_DEST_IP`) to your demo hotspot and laptop.
+
+3. **Flip the switch and build.** In `core/rc_config.h` change
+   `#define RC_NET_ENABLE (0)` to `(1)` (or build with
+   `RC_CFLAGS="-DRC_NET_ENABLE=1"`), then build the mission image as in
+   §4.1. On boot you should see `[wifi] up` then `[mqtt] connected`.
+
+**Quick test** — on the laptop running the broker (`mosquitto -v`):
+
+```bash
+mosquitto_sub -h <broker-ip> -t 'car/01/#' -v   # watch telemetry
+mosquitto_pub  -h <broker-ip> -t car/01/cmd -m L # send "turn left"
+mosquitto_pub  -h <broker-ip> -t car/01/cmd -m X # send "stop"
+```
+
+If WiFi is not up (or you skipped step 1), the car quietly falls back to
+the console sink and keeps running — nothing else breaks. Full topic and
+message details are in [`MQTT.md`](docs/buddy1-telemetry/MQTT.md).
 
 ---
 

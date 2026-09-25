@@ -635,13 +635,21 @@ pattern) — while every *other* task keeps running normally. This is what
 makes the telemetry loop periodic without a busy `while` loop wasting
 CPU cycles the motor-control task needs.
 
-The `TODO` comment marks Buddy 1's second real task: today, once the
-sink is opened at task start, nothing ever checks whether it's still
+> **Now implemented.** This is done, in `telemetry_link_ok()`, called once
+> per loop iteration before publishing: it calls `sink->is_up()`, and on a
+> drop closes, waits a `tk_dly_tsk` backoff that doubles from
+> `RC_NET_BACKOFF_MIN_MS` to `RC_NET_BACKOFF_MAX_MS`, then makes a single
+> reopen attempt (never a busy retry loop, which would violate §1.3). The
+> loop `continue`s and skips publishing on a down tick rather than hammer a
+> dead sink. The paragraph below describes the original TODO for context.
+
+The `TODO` comment marked Buddy 1's second real task: once the
+sink is opened at task start, nothing checked whether it was still
 connected. The fix belongs right here, once per loop iteration — call
 `sink->is_up()`, and if it reports down, call `sink->close()`, wait a
 bit using `tk_dly_tsk` with a growing delay each retry (a "backoff"), then
-try `sink->open()` again. The comment specifically warns against a
-"retry loop" — a tight loop that keeps trying without yielding — because
+try `sink->open()` again. A "retry loop" — a tight loop that keeps trying
+without yielding — is specifically avoided, because
 that would violate the non-blocking rule from §1.3 and stall the whole
 task (and delay every message after it) while waiting on a dead network
 link.
@@ -753,20 +761,33 @@ path exists and decodes an incoming command, it would call `cmd_cb(cmd,
 arg, cmd_ctx)` to hand it off to whatever registered here (most likely
 `sub_nav.c`, the shared mission state machine from §2.2).
 
-**Missing / TODO for Buddy 1**
+**Status for Buddy 1 — done**
 
-- **`sub_telemetry_udp_sink()`** — not implemented. Needs its own file
-  implementing the `sub_telemetry_sink_t` interface over the RP2040 port's
-  lwIP UDP support (lwIP is the lightweight TCP/IP networking stack this
-  platform ships). Build this first, before MQTT.
-- **`sub_telemetry_mqtt_sink()`** — not implemented. Needs an MQTT client
-  to be brought in separately (the RTOS doesn't ship one), then wired into
-  the same sink interface. Deliberately the last step.
-- **Connection recovery** — flagged with a TODO inside `telemetry_task()`.
-  Currently the task never checks whether the sink is still connected once
-  opened. Needs: check `sink->is_up()` each tick, and on a drop, call
-  `sink->close()`, wait with a backoff delay (using `tk_dly_tsk`, never a
-  busy retry loop), then reopen.
-- **Command receiving path** — `sub_telemetry_on_command()` only stores a
-  callback; nothing actually listens for or decodes incoming commands over
-  WiFi yet. Build this alongside the UDP/MQTT sinks.
+All four items below are implemented. The full communication contract, the
+enable switch and the test procedure are in [`MQTT.md`](MQTT.md).
+
+- **`sub_telemetry_udp_sink()`** — done, in `subsystems/sub_telemetry_udp.c`.
+  Sends each message as one UDP datagram (`"<topic> <payload>\n"`) over
+  lwIP to `RC_UDP_DEST_IP:PORT`. The cheap "prove the WiFi path" transport.
+- **`sub_telemetry_mqtt_sink()`** — done, in `subsystems/sub_telemetry_mqtt.c`.
+  Publishes over the lwIP MQTT app client and subscribes to `car/01/cmd`
+  for inbound commands. QoS 0 publish, QoS 1 command subscribe.
+- **Connection recovery** — done, in `telemetry_task()` via
+  `telemetry_link_ok()`: checks `sink->is_up()` each tick and, on a drop,
+  closes, waits a doubling backoff (`RC_NET_BACKOFF_MIN..MAX_MS`) with
+  `tk_dly_tsk`, then reopens. WiFi + broker are both re-driven here.
+- **Command receiving path** — done. The MQTT sink decodes an inbound
+  command and calls `sub_telemetry_deliver_command()`, which publishes
+  `RC_EVT_COMMAND_RX`. `sub_nav` handles it (and exposes
+  `sub_nav_inject_command()` for a bench/manual injection). Remote **STOP**
+  works from any state; other commands run while line following.
+
+WiFi association is shared by both sinks in `subsystems/net_wifi.c`. All of
+it is behind `RC_NET_ENABLE` (off by default): the console-only mission
+build is unchanged and pulls in no lwIP.
+
+**One caveat to verify on hardware** — the MQTT inbound-data callback runs
+in lwIP/`cyw43_arch` context, and it calls `sub_telemetry_deliver_command()`
+→ `rc_event_publish()`. If this port maps lwIP callbacks to hard-IRQ
+context, switch that single publish to `rc_event_publish_i()`. Noted at the
+call site in `sub_telemetry_mqtt.c`.

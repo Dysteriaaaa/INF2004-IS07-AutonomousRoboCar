@@ -32,4 +32,15 @@ rc_result_t sub_nav_stop(void);
 
 rc_nav_state_t sub_nav_state(void);
 
+/*
+ *  Inject a navigation command from outside the sensor path — the remote
+ *  command channel Buddy 1 delivers over WiFi/MQTT, or a bench harness.
+ *  It does not touch nav state directly: it publishes RC_EVT_COMMAND_RX,
+ *  which this module handles on the fast dispatcher alongside every other
+ *  event, so nav state stays owned by one task. Safe to call from any
+ *  task context. `arg` is reserved for parameterised commands (e.g. a
+ *  turn angle); pass 0 when unused.
+ */
+rc_result_t sub_nav_inject_command(rc_nav_cmd_t cmd, int32_t arg);
+
 #endif /* SUB_NAV_H */

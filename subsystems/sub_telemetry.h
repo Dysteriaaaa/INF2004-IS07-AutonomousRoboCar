@@ -123,12 +123,29 @@ rc_result_t sub_telemetry_publish_event(const rc_event_t *evt);
 const sub_telemetry_sink_t *sub_telemetry_console_sink(void);
 
 /*
- *  TODO Buddy 1: implement these two in their own files, matching the
- *  sink interface above. Neither is written yet.
+ *  Network sinks. Implemented in sub_telemetry_udp.c and
+ *  sub_telemetry_mqtt.c, both behind RC_NET_ENABLE (rc_config.h). When
+ *  the radio path is compiled out — the default — each of these returns
+ *  NULL, and sub_telemetry_set_sink(NULL) then keeps the console sink, so
+ *  callers can wire them unconditionally without breaking a console-only
+ *  build.
  *
- *      sub_telemetry_udp_sink()    over the port's lwIP UDP profile
- *      sub_telemetry_mqtt_sink()   over an MQTT client you bring in
+ *      sub_telemetry_udp_sink()    telemetry as UDP datagrams (prove the
+ *                                  network path; no broker needed)
+ *      sub_telemetry_mqtt_sink()   full MQTT publish + command subscribe
  */
+const sub_telemetry_sink_t *sub_telemetry_udp_sink(void);
+const sub_telemetry_sink_t *sub_telemetry_mqtt_sink(void);
+
+/*
+ *  The receive path. A transport that has decoded an inbound command
+ *  calls this from its own task/callback context. If a callback was
+ *  registered with sub_telemetry_on_command() it is invoked; otherwise
+ *  the command is published as RC_EVT_COMMAND_RX so sub_nav can act on it
+ *  in the fast dispatcher. Either way the caller does not touch nav state
+ *  directly, which keeps the mission state machine single-threaded.
+ */
+rc_result_t sub_telemetry_deliver_command(rc_nav_cmd_t cmd, int32_t arg);
 
 /* SUB_TELEMETRY_H -- matches the #ifndef/#define include guard at the top of
  * the file */

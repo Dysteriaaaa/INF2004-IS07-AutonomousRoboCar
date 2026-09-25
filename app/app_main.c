@@ -135,6 +135,17 @@ EXPORT INT usermain(void)
     if (!step("telemetry", sub_telemetry_init())) { return 1; }
     if (!step("nav",       sub_nav_init()))       { return 1; }
 
+#if RC_NET_ENABLE
+    /* Buddy 1: swap the default console sink for the radio transport. This
+     * is the one line that moves telemetry from USB to WiFi - the framing,
+     * topics and scheduling in sub_telemetry.c do not change. open() here
+     * kicks off the WiFi join and MQTT connect; the telemetry task's
+     * recovery loop keeps them alive after this. A failure is not fatal:
+     * set_sink falls back to the console on NULL, and a down link just
+     * means messages queue as failures until it recovers. */
+    (void)step("wifi/mqtt", sub_telemetry_set_sink(sub_telemetry_mqtt_sink()));
+#endif
+
     /* Housekeeping tasks. */
     ctsk.exinf   = NULL;
     ctsk.itskpri = RC_PRI_SENSE;
