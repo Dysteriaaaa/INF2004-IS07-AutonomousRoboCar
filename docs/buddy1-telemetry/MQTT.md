@@ -33,8 +33,13 @@ qualified release:
    CYW43439 driver + lwIP).
 2. Enable the lwIP **MQTT app** (`LWIP_MQTT`/`MQTT_APP`) so
    `lwip/apps/mqtt.h` is available.
-3. Provide an `lwipopts.h` with `LWIP_UDP=1`, `LWIP_TCP=1`, `MEM_SIZE`
-   large enough for a couple of pbufs, and `NO_SYS=1`.
+3. Provide an `lwipopts.h` with `LWIP_UDP=1`, `LWIP_TCP=1`, `LWIP_DNS=1`,
+   `NO_SYS=1`, `MEM_SIZE` around 8000, and — this one matters —
+   `MEMP_NUM_SYS_TIMEOUT` at **16 or more**. DHCP, DNS, TCP and MQTT each
+   take software-timer slots; the lwIP default pool is too small once they
+   run together and lwIP panics with `sys_timeout: ... MEMP_SYS_TIMEOUT is
+   empty` right after the MQTT connect. (Found on hardware — see the note
+   at the end of this file.)
 4. Set the credentials/addresses in `rc_config.h` (`RC_WIFI_SSID`,
    `RC_WIFI_PASS`, `RC_WIFI_COUNTRY`, `RC_MQTT_BROKER_IP`,
    `RC_UDP_DEST_IP`, ...).
@@ -172,3 +177,24 @@ demo. UDP proves association + the lwIP send path with almost no moving
 parts. MQTT adds the broker handshake, keep-alive and the inbound
 subscription. Bringing them up in that order means each step fails in only
 one new place.
+
+## Hardware validation (Pico W)
+
+The `cyw43_arch` + lwIP MQTT sequence used here was exercised on a real
+Pico W with a standalone Pico-SDK harness (same API calls as `net_wifi.c`
+and `sub_telemetry_mqtt.c`), joining a phone hotspot and publishing to
+`broker.hivemq.com`. Two things surfaced there and are already fixed in
+this branch:
+
+1. **`cyw43_tcpip_link_status` takes two arguments** — `(&cyw43_state,
+   CYW43_ITF_STA)`, not one. `net_wifi.c` had it wrong; it now passes
+   `&cyw43_state`.
+2. **`MEMP_NUM_SYS_TIMEOUT` must be raised** (see "Enabling the radio
+   path"), or lwIP panics right after the MQTT connect.
+
+With both in place the harness reached `wifi=UP mqtt=UP` and published
+`car/01/state` continuously with the broker acking each message, and an
+inbound `car/01/cmd` was delivered — i.e. the full publish + command path.
+The Pico W is 2.4 GHz only, so a 5 GHz-only hotspot will fail the join
+with `rc=-2` (network not found); on iPhone, enable "Maximize
+Compatibility".

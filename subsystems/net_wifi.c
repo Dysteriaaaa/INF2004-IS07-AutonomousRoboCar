@@ -46,7 +46,8 @@ bool net_wifi_is_up(void)
     if (!arch_ready) {
         return false;
     }
-    return cyw43_tcpip_link_status(CYW43_ITF_STA) == CYW43_LINK_UP;
+    return cyw43_tcpip_link_status(&cyw43_state, CYW43_ITF_STA)
+           == CYW43_LINK_UP;
 }
 
 rc_result_t net_wifi_up(void)
