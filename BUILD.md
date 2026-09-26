@@ -251,19 +251,37 @@ bench runs three phases and announces each:
    `L cnt=… spd=… dir=… | R cnt=… spd=… dir=…` every 250 ms. **Good:** both
    counts climb steadily and **both speeds are positive**.
    - A count that never moves → that encoder isn't wired or powered.
-   - A count that jumps in bursts → contact bounce; raise `DEBOUNCE_US`
-     in `drv_encoder.c`.
+   - A count that jumps in bursts, or climbs while the wheel is still →
+     electrical noise on the encoder wires. Check the encoder's GND and
+     3V3, and keep its wires away from the motor wires. (Raising
+     `DEBOUNCE_US` would hide it, but also throw away real ticks at
+     speed.)
    - A **negative** speed → that encoder's A and B wires are swapped.
      Swap them; don't negate in code.
    - A wheel turning the wrong way → that *motor's* two wires are
      swapped at the terminal. Swap them.
-2. *`sub_motion_forward_mm(300)`* — the PID drives 300 mm and the
-   completion callback prints `move completed, travelled N mm`. On the
-   ground, measure the real distance with a tape; the error is what you
-   fold into `RC_ENC_UM_PER_TICK` in `rc_config.h`. `ABORTED` means the
-   move was cancelled.
+2. *Closed-loop moves* — **put the car on the floor** with 1 m clear in
+   front (you get 5 s). It drives forward 500 mm, backward 500 mm, turns
+   right 90°, left 90° and does a U-turn, pausing 4 s after each so you
+   can measure: a tape for distances, a protractor for turns. Each move
+   prints `completed`/`ABORTED` and how far the wheels went.
+   - The forward move also prints `t_ms,tgt_l,spd_l,duty_l,tgt_r,spd_r,duty_r`
+     every 40 ms: each wheel's target and measured speed and its duty.
+     That is the PID step response for your tuning report — paste it
+     into a spreadsheet and plot speed against time.
+   - The distance error is what you fold into `RC_ENC_UM_PER_TICK`; the
+     turn error goes into `TURN_SLIP_PERMILLE` in `sub_motion.c`.
+   - `ABORTED` with `[motion] … wheel not turning` means that wheel
+     stalled or its encoder isn't counting; `move took too long` means
+     the motors can't reach the speed.
+   - Until `RC_ENC_TICKS_PER_REV` is measured (phase 3), these distances
+     are meaningless — each move stops almost at once.
 3. *Motors off* — turn a wheel by hand; only that side's count should
-   change. Catches cross-wired encoders.
+   change. Catches cross-wired encoders. **This is also where you
+   measure `RC_ENC_TICKS_PER_REV`:** put a tape mark on the tyre, turn the
+   wheel slowly exactly 10 turns in one direction, and divide the change
+   in `cnt` by 10. Do both wheels, put the number in `rc_config.h`, and
+   rebuild.
 
 Edit `bench_motion()` in `app/app_bench.c` as tuning progresses — that's
 where your PID step-response logs for the report come from.
