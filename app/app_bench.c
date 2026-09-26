@@ -19,6 +19,7 @@
 #include "rc_time.h"
 
 #include "drv_encoder.h"
+#include "drv_motor.h"
 #include "drv_ir.h"
 #include "drv_imu.h"
 #include "drv_servo.h"
@@ -33,14 +34,28 @@
 #define P(...)  tm_printf((UB *)__VA_ARGS__)
 
 /* ------------------------------------------------------------------ *
- *  Buddy 2 - motion: motors, encoders, one closed-loop move
+ *  Buddy 2 - motion: motors, encoders, closed-loop moves
  *
  *  Phase 1  wheels OFF the ground: open-loop duty on both motors while
  *           printing encoder count and signed speed. Both speeds must be
  *           positive; a negative one means that encoder's A/B are swapped.
- *  Phase 2  a real sub_motion_forward_mm(300) with its completion callback.
- *  Phase 3  motors off; keep printing so you can turn a wheel by hand.
+ *  Phase 2  car ON THE FLOOR: every move the brief asks for. Forward
+ *           500 mm logs each wheel's target speed, measured speed and
+ *           duty every 40 ms - the PID step response for the tuning
+ *           report. Then backward 500 mm, turn right 90, turn left 90 and
+ *           a U-turn, each printing its result, with a pause after each
+ *           so the car can be measured (tape, protractor).
+ *  Phase 3  motors off; keep printing so you can turn a wheel by hand -
+ *           this is where RC_ENC_TICKS_PER_REV is measured.
  * ------------------------------------------------------------------ */
+
+/* Speed for phase 2 moves, and the pause after each one for measuring. */
+#define BENCH_SPEED_MM_S    (250U)
+#define BENCH_PAUSE_MS      (4000)
+/* Give up on a move after this long even if no callback came. Moves end
+ * on their own (at the goal, or stopped by the stall/timeout guards), so
+ * this only keeps a lost callback from hanging the bench. */
+#define BENCH_MOVE_MAX_MS   (30000U)
 
 static volatile bool     move_done;
 static volatile bool     move_ok;
@@ -53,6 +68,49 @@ static void motion_cb(uint32_t id, bool completed, uint32_t mm, void *ctx)
     move_ok   = completed;
     move_mm   = mm;
     move_done = true;
+}
+
+/* One step-response sample: time since the move started, then per wheel
+ * the target speed, the measured speed (both mm/s) and the duty
+ * (permille). Comma separated, to paste into a spreadsheet. */
+static void print_step(uint32_t t_ms)
+{
+    P("  %u,%d,%d,%d,%d,%d,%d\n", (unsigned)t_ms,
+      (int)sub_motion_target_mm_s(RC_SIDE_LEFT),
+      (int)drv_encoder_speed_mm_s(RC_SIDE_LEFT),
+      (int)drv_motor_get(RC_SIDE_LEFT),
+      (int)sub_motion_target_mm_s(RC_SIDE_RIGHT),
+      (int)drv_encoder_speed_mm_s(RC_SIDE_RIGHT),
+      (int)drv_motor_get(RC_SIDE_RIGHT));
+}
+
+/* Wait for the move `id` (already started, move_done cleared before it
+ * was requested) to end, logging the step response if `log`, then print
+ * how it went. `asked` and `unit` are only for the printout. */
+static void bench_wait_move(const char *what, uint32_t id, uint32_t asked,
+                            const char *unit, bool log)
+{
+    uint32_t t0     = rc_time_ms();
+    uint32_t period = log ? 40U : 250U;
+
+    if (id == 0U) {
+        P("[bench] %s: request rejected\n", what);
+        return;
+    }
+    if (log) {
+        P("  t_ms,tgt_l,spd_l,duty_l,tgt_r,spd_r,duty_r\n");
+    }
+    while (!move_done && ((rc_time_ms() - t0) < BENCH_MOVE_MAX_MS)) {
+        tk_dly_tsk((TMO)period);
+        if (log) {
+            print_step(rc_time_ms() - t0);
+        }
+    }
+    P("[bench] %s: %s, wheels travelled %u mm (asked %u %s) in %u ms\n",
+      what,
+      !move_done ? "NO CALLBACK" : (move_ok ? "completed" : "ABORTED"),
+      (unsigned)move_mm, (unsigned)asked, unit,
+      (unsigned)(rc_time_ms() - t0));
 }
 
 static void print_wheels(void)
@@ -80,18 +138,38 @@ static void bench_motion(void)
     }
     (void)sub_motion_drive(0, 0);
     (void)sub_motion_stop(false);
-    tk_dly_tsk(1000);
 
-    P("[bench] Phase 2: sub_motion_forward_mm(300) under PID at %u mm/s.\n",
-      250U);
+    P("[bench] Phase 2: closed-loop moves at %u mm/s. PUT THE CAR ON THE"
+      " FLOOR, 1 m clear in front. Starting in 5 s.\n",
+      (unsigned)BENCH_SPEED_MM_S);
+    (void)sub_motion_set_speed(BENCH_SPEED_MM_S);
+    tk_dly_tsk(5000);
+
     move_done = false;
-    (void)sub_motion_forward_mm(300U, motion_cb, NULL);
-    while (!move_done) {
-        tk_dly_tsk(250);
-        print_wheels();
-    }
-    P("[bench] move %s, travelled %u mm (asked 300)\n",
-      move_ok ? "completed" : "ABORTED", (unsigned)move_mm);
+    bench_wait_move("forward 500 mm",
+                    sub_motion_forward_mm(500U, motion_cb, NULL),
+                    500U, "mm", true);
+    tk_dly_tsk(BENCH_PAUSE_MS);
+
+    move_done = false;
+    bench_wait_move("backward 500 mm",
+                    sub_motion_backward_mm(500U, motion_cb, NULL),
+                    500U, "mm", false);
+    tk_dly_tsk(BENCH_PAUSE_MS);
+
+    move_done = false;
+    bench_wait_move("turn right 90", sub_motion_turn_deg(90, motion_cb, NULL),
+                    90U, "deg", false);
+    tk_dly_tsk(BENCH_PAUSE_MS);
+
+    move_done = false;
+    bench_wait_move("turn left 90", sub_motion_turn_deg(-90, motion_cb, NULL),
+                    90U, "deg", false);
+    tk_dly_tsk(BENCH_PAUSE_MS);
+
+    move_done = false;
+    bench_wait_move("U-turn 180", sub_motion_turn_deg(180, motion_cb, NULL),
+                    180U, "deg", false);
 
     P("[bench] Phase 3: motors off. Turn a wheel by hand and watch its"
       " count.\n");

@@ -16,20 +16,21 @@
 #include "rc_time.h"
 
 /* If no new edge arrives within this many microseconds, treat the wheel
- * as stopped rather than as "very slow" (otherwise a stationary wheel
- * would look like it's crawling forever, since period would just keep
- * growing). One second is generous, tighten it once you know your
- * slowest useful speed. */
-#define STALL_TIMEOUT_US    (1000000UL)
+ * as stopped rather than as "very slow". The encoder counts the motor
+ * shaft before the gearbox, so a moving wheel gives hundreds of ticks per
+ * turn: 100 ms without one means the wheel is creeping at a few mm/s at
+ * most, which the PID can safely treat as stopped. */
+#define STALL_TIMEOUT_US    (100000UL)
 
 /* Minimum microseconds between two edges for them to count as separate
- * slots. An ST188 or slotted-opto sensor's output can "ring" (flicker
- * rapidly) on a slow-moving edge instead of switching cleanly - anything
- * closer together than this is treated as electrical noise from the same
- * physical slot, not a second slot. This is called "debouncing." Set it
- * from the fastest edge rate you expect: at 20 slots and 600 RPM that is
- * 5 ms between slots, so 500 us of rejection is safe. */
-#define DEBOUNCE_US         (500UL)
+ * ticks ("debouncing"). The Hall-effect encoders on these motors switch
+ * cleanly through the pin's Schmitt trigger, so this only rejects short
+ * electrical glitches (motor PWM noise picked up by the encoder wires).
+ * It must stay well below the real gap between ticks at top speed: at
+ * 1000 ticks per wheel turn and 200 wheel RPM that gap is 300 us. The old
+ * 500 us, chosen for a 20-slot optical disc, would throw away real ticks
+ * at speed. */
+#define DEBOUNCE_US         (50UL)
 
 /* Per-wheel encoder state.
  * "volatile" tells the compiler "this value can change at any moment
@@ -117,7 +118,7 @@ static void encoder_isr(uint32_t pin, bool level, uint32_t t_us, void *ctx)
                                           * even if t_us's counter rolled
                                           * over past its max value */
     if (delta < DEBOUNCE_US) {
-        return;                          /* contact bounce, ignore */
+        return;                          /* electrical glitch, ignore */
     }
 
     /* Quadrature direction: the two channels are 90 degrees out of phase,
@@ -235,12 +236,15 @@ uint32_t drv_encoder_count(rc_side_t side)
     return (side > RC_SIDE_RIGHT) ? 0U : encs[side].count;
 }
 
-/* Microseconds between the two most recent edges on one wheel, or 0 if
- * the wheel has gone quiet for longer than STALL_TIMEOUT_US. */
+/* Microseconds between the two most recent edges on one wheel - or the
+ * time since the last edge, if that is already longer (the wheel is
+ * slowing down). 0 if no edge has been seen yet, or the wheel has gone
+ * quiet for longer than STALL_TIMEOUT_US. */
 uint32_t drv_encoder_period_us(rc_side_t side)
 {
     uint32_t period;
     uint32_t last;
+    uint32_t since;
     uint32_t sts;
 
     if (side > RC_SIDE_RIGHT) {
@@ -254,8 +258,18 @@ uint32_t drv_encoder_period_us(rc_side_t side)
     last   = encs[side].last_us;
     EI(sts);
 
-    if ((rc_time_us() - last) > STALL_TIMEOUT_US) {
-        return 0U;
+    since = rc_time_us() - last;        /* wrap safe, as in the ISR */
+    if ((period == 0U) || (since > STALL_TIMEOUT_US)) {
+        return 0U;                      /* no tick yet, or stopped */
+    }
+
+    /* If more time has passed since the last tick than the last gap
+     * between ticks, the wheel is slower than that gap says - it is at
+     * most this fast. Using the longer time makes the speed fall smoothly
+     * while a wheel stops, instead of freezing at the last reading until
+     * the stall timeout and misleading the PID. */
+    if (since > period) {
+        period = since;
     }
     return period;
 }

@@ -1,14 +1,16 @@
 /*
  *  drv_encoder.h  -  Buddy 2 hardware layer
  *
- *  Two-channel (A/B, "quadrature") encoders, one per wheel. The two
- *  channels are the same signal offset by a quarter of a slot, so at the
- *  instant A rises, B is low when the wheel turns one way and high when
- *  it turns the other. Channel A raises the edge interrupt and is
- *  counted; channel B is read inside that interrupt to get direction. So
- *  direction IS measured from the wheel itself - including during the
- *  moment it is still coasting after a reversal - not guessed from the
- *  last motor command.
+ *  Two-channel (A/B, "quadrature") Hall-effect encoders, one built into
+ *  the back of each gear motor. They read the motor shaft before the
+ *  gearbox, so one wheel turn is hundreds of ticks (RC_ENC_TICKS_PER_REV
+ *  in rc_config.h). The two channels are the same signal offset by a
+ *  quarter of a cycle, so at the instant A rises, B is low when the wheel
+ *  turns one way and high when it turns the other. Channel A raises the
+ *  edge interrupt and is counted; channel B is read inside that interrupt
+ *  to get direction. So direction IS measured from the wheel itself -
+ *  including during the moment it is still coasting after a reversal -
+ *  not guessed from the last motor command.
  *
  *  Which sense of B is "forward" depends on how the encoder is mounted.
  *  If a wheel reads negative when the car is driven forward, swap that
@@ -39,9 +41,11 @@ rc_result_t drv_encoder_init(void);
  * up, never resets on its own). */
 uint32_t drv_encoder_count(rc_side_t side);
 
-/* Microseconds between the two most recent edges. Returns 0 when the
- * wheel has been still longer than the stall timeout (so a stopped wheel
- * reads as "0", not as "infinitely slow"). */
+/* Microseconds between the two most recent edges, or the time since the
+ * last edge if that is longer (so a slowing wheel's speed falls instead
+ * of freezing). Returns 0 before the first edge and when the wheel has
+ * been still longer than the stall timeout (so a stopped wheel reads as
+ * "0", not as "infinitely slow"). */
 uint32_t drv_encoder_period_us(rc_side_t side);
 
 /* Signed speed in mm/s, derived from the period and the direction read

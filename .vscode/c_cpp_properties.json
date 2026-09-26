@@ -1,0 +1,38 @@
+{
+  // Tells the C/C++ extension (IntelliSense: squiggles, go-to-definition)
+  // where the headers are. It does not read the makefile, so this mirrors
+  // the folders and defines build/build.sh compiles with (build/robocar.mk
+  // and the port's makefile). Editor only - it does not change the build.
+  "configurations": [
+    {
+      "name": "RoboCar",
+      "includePath": [
+        "${workspaceFolder}/core",
+        "${workspaceFolder}/drivers",
+        "${workspaceFolder}/subsystems",
+        "${workspaceFolder}/app",
+        "${workspaceFolder}/external/mtk3smp-rp2040/include",
+        "${workspaceFolder}/external/mtk3smp-rp2040/config",
+        "${workspaceFolder}/external/mtk3smp-rp2040/kernel/knlinc",
+        "${workspaceFolder}/external/mtk3smp-rp2040/device/include"
+      ],
+      "defines": [
+        "_PICO_RP2040_",
+        "TM_CONSOLE_USB_CDC=1",
+        "NDEBUG"
+      ],
+      // The toolchain the VS Code Pico extension installs; it supplies
+      // <stdint.h>, <string.h> and friends. If yours is another version,
+      // change the folder name to match ~/.pico-sdk/toolchain/.
+      "compilerPath": "${userHome}/.pico-sdk/toolchain/15_2_Rel1/bin/arm-none-eabi-gcc",
+      "compilerArgs": [
+        "-mcpu=cortex-m0plus",
+        "-mthumb",
+        "-mfloat-abi=soft",
+        "-ffreestanding"
+      ],
+      "cStandard": "gnu11"
+    }
+  ],
+  "version": 4
+}

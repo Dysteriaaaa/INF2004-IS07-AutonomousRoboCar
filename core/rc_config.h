@@ -36,10 +36,16 @@
  *  exception is the status LED, which hangs off the breakout header.
  * ------------------------------------------------------------------ */
 
-/* Wheel encoders, two-channel (A/B). Channel A raises the edge interrupt;
- * channel B is sampled at that instant to get direction. If a wheel reads
- * backwards, swap that encoder's A and B wires rather than adding a sign
- * in software.
+/* Wheel encoders: two-channel (A/B) Hall-effect encoders built into the
+ * back of each gear motor. Each motor has six wires: two motor-power wires
+ * to its MOTOR terminal, and four encoder wires (VCC, GND, A, B) to one
+ * Grove socket. Colour codes differ between makers, so wire by the labels
+ * on the motor's encoder board, never by colour. VCC goes to the Grove
+ * 3V3, which keeps A/B at the Pico's 3.3 V logic level.
+ *
+ * Channel A raises the edge interrupt; channel B is sampled at that
+ * instant to get direction. If a wheel reads backwards, swap that
+ * encoder's A and B wires rather than adding a sign in software.
  *
  * Left  = Grove 1 (GP0/GP1). Right = Grove 7 (GP7/GP28).
  *
@@ -120,14 +126,23 @@
  *  Mechanical constants. Measure these on your own car.
  * ------------------------------------------------------------------ */
 
-#define RC_ENC_SLOTS_PER_REV    (20U)   /* slots on the encoder disc */
-#define RC_WHEEL_DIAM_MM        (65U)
+/* Encoder ticks (channel-A rising edges) per WHEEL revolution. The Hall
+ * encoder reads the motor shaft before the gearbox, so this is the
+ * encoder's pulses per motor turn times the gear ratio - typically several
+ * hundred, not the 20 of a slotted disc. Measure it: flash the motion
+ * bench and, in phase 3 (motors off), turn one wheel exactly 10 turns by
+ * hand in one direction. The count change divided by 10 is this number.
+ *
+ * TODO Buddy 2: 20 is a placeholder until that measurement is done. Until
+ * then every distance and speed is wrong by the same large factor. */
+#define RC_ENC_TICKS_PER_REV    (20U)
+#define RC_WHEEL_DIAM_MM        (64U)   /* measured: tyre outside diameter */
 #define RC_WHEEL_BASE_MM        (110U)  /* centre to centre of the wheels */
 
 /* Distance per encoder edge, in micrometres, to stay in integer maths.
  * There is no FPU on the RP2040, so everything downstream is fixed point. */
 #define RC_ENC_UM_PER_TICK      ((31416UL * (unsigned long)RC_WHEEL_DIAM_MM) \
-                                 / (10UL * (unsigned long)RC_ENC_SLOTS_PER_REV))
+                                 / (10UL * (unsigned long)RC_ENC_TICKS_PER_REV))
 
 /* ------------------------------------------------------------------ *
  *  Ultrasonic

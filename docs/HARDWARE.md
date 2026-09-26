@@ -251,8 +251,9 @@ via TinyUSB. No USB-serial adapter and no Grove port is used for the console.
 
 ### 4.2 Buddy 2 — Motion control
 
-**Hardware:** 2 × DC gear motors into the Robo Pico terminals, 2 × two-channel
-(A/B) encoders.
+**Hardware:** 2 × DC gear motors, each with a two-channel (A/B) Hall-effect
+encoder built into the back of the motor. Six wires per motor: two to its
+motor terminal, four (VCC, GND, A, B) to one Grove socket.
 
 **Wiring:**
 
@@ -264,8 +265,16 @@ via TinyUSB. No USB-serial adapter and no Grove port is used for the console.
 | Right encoder A / B | GP7 / GP28 | Grove 7: GND, 3V3, A, B — one cable |
 
 Each encoder's four wires map straight onto a Grove socket: GND to GND, VCC to
-3V3, A to the first signal pin, B to the second. Because GP0/GP1 are also the
-port's UART0, the build **must** be `CONSOLE=usb_cdc` (§1.5).
+3V3, A to the first signal pin, B to the second. **Identify the six wires by
+the labels on the motor's encoder board, not by colour** — colour codes differ
+between makers, and a motor wire on the Grove 3V3/GND (or the encoder on the
+battery) can put battery voltage onto the Pico's 3.3 V pins. Because GP0/GP1
+are also the port's UART0, the build **must** be `CONSOLE=usb_cdc` (§1.5).
+
+**The encoder reads the motor shaft, before the gearbox**, so one wheel turn
+is hundreds of ticks (pulses per motor turn × gear ratio), not the 20 of a
+slotted disc. `RC_ENC_TICKS_PER_REV` must be measured, and `DEBOUNCE_US` in
+`drv_encoder.c` must stay well below the gap between ticks at top speed.
 
 Robo Pico uses **two PWM pins per motor**, not PWM-plus-direction. Forward is
 PWM on MxA with MxB low; reverse swaps them; brake is both high; coast is both
@@ -286,8 +295,10 @@ that encoder's A and B wires rather than adding a sign in software.
 
 **Setup and calibration, in order:**
 
-1. Measure your wheel diameter and slot count. Set `RC_WHEEL_DIAM_MM`,
-   `RC_ENC_SLOTS_PER_REV` and `RC_WHEEL_BASE_MM` in `rc_config.h`.
+1. Measure ticks per wheel turn: in phase 3 of the `motion` bench (motors
+   off), turn a wheel exactly 10 turns by hand and divide the count change
+   by 10. Set it as `RC_ENC_TICKS_PER_REV` in `rc_config.h`, along with the
+   measured `RC_WHEEL_DIAM_MM` and `RC_WHEEL_BASE_MM`.
 2. Wheels off the ground. Command a fixed duty, log `drv_encoder_speed_mm_s`,
    and confirm it is stable, roughly linear in duty, and **positive** for a
    forward command on both sides. Negative on one side means that encoder's
@@ -559,7 +570,7 @@ beginner walkthrough of each bench, with sample good/bad output, is
 | 1 | any | Blink GP19 | LED blinks at 1 Hz |
 | 2 | any | `tm_printf` over USB | Text appears on the Pico's USB serial port |
 | 3 | `motion` | Motors, open loop | Both wheels spin the right way at a fixed duty |
-| 4 | `motion` | Encoders | Counts rise smoothly, no bursts (that is bounce — raise `DEBOUNCE_US`); speed is positive on both sides when driven forward (else swap A/B) |
+| 4 | `motion` | Encoders | Counts rise smoothly (bursts, or counting while the wheel is still, is electrical noise — check the encoder's GND/3V3 and keep its wires away from the motor wires); speed is positive on both sides when driven forward (else swap A/B); `RC_ENC_TICKS_PER_REV` measured by hand-turning a wheel 10 turns |
 | 5 | `motion` | Closed-loop speed | Commanded mm/s matches measured within 10 % |
 | 6 | `line` | IR sensors | DO flips crossing the line; the barcode AO differs clearly black vs white |
 | 7 | `follow` | Line following | Car tracks a straight line, then a curve |
@@ -584,8 +595,8 @@ the car drives.
 |---|---|---|
 | Raspberry Pi Pico W | 1 | GP23/24/25/29 reserved by the radio |
 | Cytron Robo Pico | 1 | Motor driver, servo ports, Grove breakouts |
-| DC gear motors + wheels | 2 | |
-| Wheel encoders, two-channel A/B | 2 | Left on Grove 1, right on Grove 7 |
+| DC gear motors + wheels | 2 | Encoder built in; 6 wires each (2 motor, 4 encoder) |
+| Wheel encoders, two-channel A/B (Hall) | 2 | Built into the motors above. Left on Grove 1, right on Grove 7 |
 | MH-Sensor-Series IR module (TCRT5000 + LM393) | 3 | 2 line + 1 barcode |
 | HC-SR04 | 1 | Needs a 5 V supply and a divider on ECHO |
 | SG90-class servo + pan bracket | 1 | |
