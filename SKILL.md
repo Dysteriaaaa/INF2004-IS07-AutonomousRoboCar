@@ -1,6 +1,6 @@
 ---
 name: inf2004-robocar
-description: Context for the INF2004-IS07 autonomous robotic car - a Raspberry Pi Pico W line-following, barcode-decoding, obstacle-avoiding car on micro T-Kernel 3.0 (mtk3smp-rp2040). Use when working on any file in this repo, when asked about the robo car, RoboCar, line following, barcode decoding, hump detection, ultrasonic scanning, telemetry, the event bus, or any rc_/drv_/sub_ prefixed module. Also use when asked to build, debug, extend, or review this codebase, or when adding a new sensor, subsystem, or driver to it.
+description: Context for the INF2004-IS07 autonomous robotic car - a Raspberry Pi Pico W line-following, barcode-decoding, obstacle-avoiding car on micro T-Kernel 3.0 (mtk3smp-rp2040). Use when working on any file in this repo, when asked about the robo car, RoboCar, line following, barcode decoding, hump detection, ultrasonic scanning, WiFi/UDP/MQTT telemetry, the event bus, or any rc_/drv_/sub_/net_ prefixed module. Also use when asked to build, debug, extend, or review this codebase, or when adding a new sensor, subsystem, or driver to it.
 ---
 
 # INF2004-IS07 Autonomous Robotic Car
@@ -8,6 +8,10 @@ description: Context for the INF2004-IS07 autonomous robotic car - a Raspberry P
 Read this before changing anything in this repo. Several of the decisions here
 look wrong until you know the constraint that forced them, and the most
 expensive mistakes on this project are the ones that look like cleanups.
+
+*Last verified against commit `2c04bc7` (both images rebuilt, sizes and ISR
+costs re-measured). The architecture sections age well; the status tables do
+not - run `git log` and re-check "Where the project is now" first.*
 
 ## What the project is
 
@@ -33,7 +37,7 @@ quality, resource efficiency and system robustness.
 | Carrier | Cytron Robo Pico |
 | RTOS | micro T-Kernel 3.0, `sirfonzie/mtk3smp-rp2040` |
 | Language | C, Barr-C coding standard |
-| Toolchain | `arm-none-eabi-gcc` 13.2.1 |
+| Toolchain | `arm-none-eabi-gcc` 15.2.1 (Arm GNU Toolchain 15.2.Rel1) |
 | Build | The port's own `make` tree, **not** CMake and not the Pico SDK build |
 | FPU | **None.** Cortex-M0+. Everything is integer or fixed point |
 
@@ -48,16 +52,21 @@ confirm with the module lead.
 ```
 core/         event bus, timebase, GPIO interrupt mux, PWM, bottom halves
 drivers/      one module per physical device
-subsystems/   one module per team member, plus the mission state machine
-app/          usermain and housekeeping tasks
+subsystems/   one module per team member, plus the mission state machine and
+              the network transports (net_wifi.*, sub_telemetry_udp.c,
+              sub_telemetry_mqtt.c - all behind RC_NET_ENABLE)
+app/          usermain, housekeeping tasks, app_bench.c (per-buddy bench modes)
 docs/         HARDWARE.md (wiring/setup reference) and Robo_Pico.pdf (shared board datasheet)
               buddyN-<name>/ - one folder per buddy: the guide .md plus that
                 buddy's own datasheets (buddy3 = IR/LM393/TCRT5000 + barcode spec,
-                buddy4 = LSM303DLHC/OKY3231-2, buddy5 = HC-SR04, buddy1 = Pico W)
+                buddy4 = LSM303DLHC/OKY3231-2, buddy5 = HC-SR04, buddy1 = Pico W
+                + MQTT.md, the WiFi/broker runbook)
               img/hw/ - part photos, pin map diagrams + the scripts that generate them
               img/week6/ - the Week 6 report figures (d2 pin layout ... d6 sequences)
-              report/ - Week 6 design review (.docx) and its template
+              report/ - the Week 6 template. The submitted design review .docx
+                was removed from the repo in 2c04bc7; see "The Week 6 report"
               Project Write-up.pdf - the assignment brief, kept at the docs root
+              PicoCar.pptx - module slides
 build/        setup.sh / build.sh / flash.sh, robocar.mk (the makefile hook),
               patch_port.py (board patches); build/out/ holds the .uf2 images
 external/     mtk3smp-rp2040 kernel port as a pinned git submodule
@@ -66,7 +75,8 @@ TEAM_GUIDE.md - shared guide: big picture, shared code (app_main, sub_nav,
 BUILD.md      - install -> clone -> setup -> build -> flash -> test, every step,
                VS Code Pico extension first; §5 = one bench per buddy + mission
 .vscode/      tasks.json (build/flash as VS Code tasks via Git Bash),
-               settings.json (Git Bash as the workspace terminal)
+               settings.json (Git Bash as the workspace terminal),
+               c_cpp_properties.json (IntelliSense include paths)
 ```
 
 Three generated diagrams live in `docs/img/hw/`. Edit the scripts, never
@@ -77,6 +87,12 @@ the PNGs, and re-run them:
 | `gen_pin_map.py` | `robopico_pin_map.png` | `d2_pin_layout.png` | The Robo Pico drawn to scale (terminals/servo top, Grove 1 left, Grove 7 right, Grove 2-6 bottom, headers + socket centre) with poster-style chips fanning out from each connector: GPIO, function in use, device |
 | `gen_board_view.py` | `robopico_board_view.png` | `d2b_board_view.png` | The same wiring drawn on the physical board, for finding the right socket |
 | `gen_hcsr04_divider.py` | `hcsr04_divider.png` | - | The HC-SR04 Echo 5 V->3.3 V divider: schematic (1 k / 2 k, junction to GP3) plus a mini-breadboard layout with the Grove cable colours |
+
+Regenerate with `python docs/img/hw/<script>.py` - each writes its PNG and,
+for the two pin maps, a second copy under `docs/img/week6/` for the report.
+Two Windows traps: the save fails with `OSError: [Errno 22]` if the PNG is
+open in a viewer (close it and re-run), and a Pillow script that prints
+non-ASCII needs `PYTHONIOENCODING=utf-8`.
 
 Board geometry and port assignments came from the Cytron Robo Pico datasheet
 in `docs/Robo_Pico.pdf` (its text is glyph-encoded, so the board images
@@ -134,17 +150,44 @@ tasks that always run through Git Bash.
 | `sub_scan.*` | Buddy 5 | Coarse/fine scan, obstacle profiling, avoidance planning |
 | `sub_nav.*` | shared | Mission state machine |
 
+## Where the project is now
+
+**Check `git log` before trusting anything below.** The buddies work on their
+own branches (`buddy1/wifi-telemetry`, `buddy2/motion-control-system`, ...)
+and merge to `main` through pull requests, so a lot can land between sessions.
+State as of **2c04bc7**:
+
+| Area | State |
+|---|---|
+| Event bus, drivers, bench harness, build scripts | Done, stable since b51f449 |
+| **Buddy 1** telemetry | **Done.** Console + UDP + MQTT sinks, reconnect backoff, inbound command path (`car/01/cmd` -> `sub_nav_inject_command`). The radio sits behind `RC_NET_ENABLE`, off by default |
+| **Buddy 2** motion | **Done.** Real turning, reverse, feedforward + PID per wheel, trapezoid speed profile, straight-line sync, stall and timeout safety stops, a move queue. The MODE_TURN stub is gone |
+| **Buddy 3** line + barcode | Decoder and follower work; proportional-only steering, Code 39 table covers `*`, A-D, Z |
+| **Buddy 4** IMU + terrain | Hump FSM and classification in place; thresholds unvalidated |
+| **Buddy 5** scan + avoidance | Sweep, profile and plan in place; bypass leg 3 is a fixed turn |
+| Hardware | Buddy 1 exercised the `cyw43_arch` + lwIP MQTT sequence on a **real Pico W** with a standalone Pico-SDK harness (same calls as `net_wifi.c`). The **car firmware itself has still not been run on the car** |
+
 ## Build status
 
 Both configurations build clean and link to a flashable UF2:
 
 ```
-SMP=0 usb_cdc   62,784 B text   20,892 B bss    0 warnings
-SMP=1 usb_cdc   73,188 B text   25,000 B bss    0 warnings
+SMP=0 usb_cdc   66,780 B text   21,188 B bss    0 warnings
+SMP=1 usb_cdc   77,184 B text   25,296 B bss    0 warnings
 ```
 
-(arm-none-eabi-gcc 15.2.1, Pico SDK 2.3.1 for TinyUSB, via
-`build/build.sh`.) Start on `SMP=0`. Nothing has been run on hardware yet.
+(arm-none-eabi-gcc 15.2.1, Pico SDK 2.3.1 for TinyUSB, via `build/build.sh`,
+`RC_NET_ENABLE=0`.) Start on `SMP=0`. The ~4 kB growth over the b51f449
+figures is buddy 1's transports and buddy 2's motion rewrite, not bloat:
+`sub_motion.o` went 796 -> 3,057 B text when the turn/profile/stall logic
+replaced the stub.
+
+Under the strict-warning flags (see **Style**) two `-Wsign-conversion`
+warnings remain, both the same shape - a `tk_dly_tsk()` argument cast to
+`INT`/`TMO` where the API takes `RELTIM`:
+`subsystems/sub_telemetry.c:494` and `app/app_bench.c:104`. Cast to
+`(RELTIM)` when you touch those lines. Everything else is clean, and the
+80-column check reports zero.
 
 ## Architecture: the event bus
 
@@ -186,16 +229,17 @@ It may **not** publish events, run a decoder, divide, or call a user callback.
 All of that goes in a bottom half registered with `rc_defer_register()`, which
 runs in a task above both dispatchers.
 
-Measured on the SMP=0 image:
+Re-measured on the SMP=0 image at 2c04bc7 (`arm-none-eabi-objdump -d`,
+instructions between the symbol and the next blank line):
 
 | Handler | Instructions | ~Time @125 MHz |
 |---|---|---|
-| `encoder_isr` | 18 (+1 GPIO read for channel B since the A/B change; re-measure) | 0.2 µs |
+| `encoder_isr` | 25 | 0.3 µs |
 | `timeout_handler` | 34 | 0.4 µs |
-| `barcode_isr` | 36 | 0.4 µs |
-| `trig_done_handler` | 36 | 0.4 µs |
+| `trig_done_handler` | 34 | 0.4 µs |
+| `barcode_isr` | 38 | 0.4 µs |
 | `echo_isr` | 49 | 0.5 µs |
-| `gpio_bank0_handler` | 119 | 1.3 µs |
+| `gpio_bank0_handler` | 117 | 1.3 µs |
 
 `gpio_bank0_handler` is the shared demultiplexer and includes the bit scan, so
 it is the one to watch if more pins get added.
@@ -306,17 +350,77 @@ point it matters explaining what to do and why the obvious approach fails.
 
 | Where | What |
 |---|---|
-| `sub_motion.c` | PID gains are placeholders. Encoder-based turning is a stub. Reverse distance needs sign handling |
+| `core/rc_config.h` | `RC_ENC_TICKS_PER_REV` is still the placeholder 20. Every distance, speed and turn scales off it, so it is the **first** thing to measure on the car. `RC_WHEEL_DIAM_MM` is already measured (64 mm) |
 | `sub_barcode.c` | Table carries the standard Code 39 patterns for `*`, A-D and Z (three bits set each, no entry is another's mirror). Add letters only if the track needs them |
 | `sub_line.c` | Proportional-only on a four-state position estimate. Will weave. Add a derivative term, then move to analogue interpolation |
 | `sub_terrain.c` | Encoder cross-check on hump height; turn classification |
 | `sub_scan.c` | Side memory across obstacles; the "reverse and reattempt" case |
-| `sub_telemetry.c` | UDP and MQTT sinks; connection recovery |
+| `sub_scan.c` + `sub_nav.c` | Bypass leg 3 is a fixed turn, not a closed-loop return to the line |
 
-All mechanical constants in `rc_config.h` (wheel diameter, slot count,
-wheelbase, car width) are placeholders until measured on the actual car.
+`sub_motion.c` and `sub_telemetry.c` used to be on this list and are not any
+more - do not reintroduce "the turn is a stub" or "there is no MQTT" into any
+document. The remaining mechanical constants in `rc_config.h` (wheelbase, car
+width, encoder ticks per rev) are placeholders until measured on the car.
 
-## Telemetry: why the transport is behind an interface
+## Motion: what the rewrite added (do not simplify it back)
+
+`sub_motion.c` is now the largest module in the tree (~1,000 lines, 3 kB of
+flash) and every part of it is load-bearing:
+
+- **Five modes**, not four: `MODE_SPEED` (closed-loop mm/s + steer, via
+  `sub_motion_drive_speed()`) joins IDLE / DISTANCE / TURN / CONTINUOUS.
+  `MODE_CONTINUOUS` stays open-loop because the line follower wants a duty,
+  not a speed.
+- **Feedforward + PID per wheel.** The feedforward term is a straight-line
+  guess at the duty a speed needs (`FF_START_PERMILLE`, `FF_TOP_SPEED_MM_S`);
+  the PID only trims it. Deleting the feedforward makes the integrator do all
+  the work and the car lurches on every start.
+- **Trapezoid speed profile** (`profile_speed`): accelerate from
+  `MIN_SPEED_MM_S`, cruise, decelerate inside `DECEL_ZONE_MM`. This is why a
+  queued move stops on the mark instead of skidding past it.
+- **Straight-line sync** (`sync_correction`): a tick-difference term that
+  steers the slower wheel up. Distinct from the per-wheel PID, which only
+  knows its own wheel.
+- **Turns** are a spin in place to an encoder-tick goal derived from
+  `RC_WHEEL_BASE_MM`, with `TURN_SLIP_PERMILLE` as the measured fudge factor
+  for wheel slip (still 1000 = no correction until someone measures it).
+- **Safety**: `stall_check()` aborts a move when a wheel is pushed at
+  `STALL_DUTY_PERMILLE` or more and reports no ticks for `STALL_CYCLES`, and
+  every queued move carries a timeout. Both end as `MOTION_DONE(aborted)`,
+  which is the contract callers already handle.
+- **64-bit intermediates** (`um_to_ticks` takes a `uint64_t`): distance in
+  micrometres times a tick count overflows 32 bits on a long move. 64-bit
+  integer maths is fine on an M0+ (libgcc); 64-bit *float* is not.
+
+## Telemetry: three sinks behind one interface
+
+The port's own docs list WiFi and lwIP as a **development profile** outside
+the qualified release, and **no MQTT client ships**. So `sub_telemetry.h`
+keeps the transport behind `sub_telemetry_sink_t` and buddy 1 implemented
+three of them: console (`sub_telemetry.c`), UDP (`sub_telemetry_udp.c`) and
+MQTT (`sub_telemetry_mqtt.c`). Framing, topics and scheduling are shared, so
+swapping transport is one `sub_telemetry_set_sink()` call in `app_main.c`.
+
+**`RC_NET_ENABLE` (rc_config.h) is the master switch and defaults to 0.**
+With it off, `sub_telemetry_udp_sink()` and `sub_telemetry_mqtt_sink()`
+return `NULL`, `set_sink(NULL)` keeps the console, and no lwIP header enters
+the build. The graded mission image is the radio-off one; console telemetry
+over USB is the reliable demo baseline.
+
+**Turning it on needs a one-time change to the port, which is not committed.**
+`-DRC_NET_ENABLE=1` on its own fails at `pico/cyw43_arch.h: No such file`
+(verified). `docs/buddy1-telemetry/MQTT.md` has the procedure: link
+`pico_cyw43_arch_lwip_threadsafe_background`, enable the lwIP MQTT app, and
+supply an `lwipopts.h` with **`MEMP_NUM_SYS_TIMEOUT` >= 16** - DHCP, DNS, TCP
+and MQTT each take a timer slot and lwIP panics right after the MQTT connect
+with the default pool. Two hardware-found facts live in that file too:
+`cyw43_tcpip_link_status` takes `(&cyw43_state, CYW43_ITF_STA)`, and the
+Pico W is **2.4 GHz only** (a 5 GHz-only hotspot fails the join with `rc=-2`).
+
+Topics are `car/01/{state,status,barcode,hump,obstacle,impact}` published, and
+`car/01/cmd` subscribed. An inbound command reaches the state machine through
+`sub_telemetry_deliver_command()` -> `sub_nav_inject_command()`, which just
+publishes `RC_EVT_COMMAND_RX` - the radio never calls a subsystem directly.
 
 The port's own docs list WiFi and lwIP as a **development profile** outside the
 qualified release, and **no MQTT client ships** — MQTT is under "Not ported",
@@ -328,6 +432,30 @@ sink. Recommended order: console (shipped) → UDP (best-tested network path) �
 MQTT (last mile). Do not rewrite this to call an MQTT client directly.
 
 Topics are `car/01/{state,status,barcode,hump,obstacle,impact}`.
+
+## The Week 6 report
+
+The submitted design review `.docx` was **removed from the repo** in 2c04bc7;
+`docs/report/` now holds only the blank template. If a future report has to be
+edited, the method that worked (recorded because none of it is obvious):
+
+- Edit the XML, do not re-generate the document: `unzip` the `.docx`, run the
+  docx skill's `merge_runs.py` (Word splits a visible sentence across many
+  `<w:r>` runs, so the phrase you can see often is not a contiguous string),
+  patch `word/document.xml`, rezip with Python's `zipfile` preserving entry
+  order, then `validate.py --original <old>` - it reports the paragraph count
+  either side, which catches a mangled edit immediately.
+- Figures were `word/media/image9.png` (Figure 2a, the pin map,
+  relationship `rId24`) and `image10.png` (Figure 2b, the board view,
+  `rId25`). Re-embedding is a straight byte replacement of those entries.
+- Word holds a lock while the file is open; a `~$`-prefixed file beside it
+  means "close Word first" (`.gitignore` already excludes those).
+- Run the validator with `PYTHONIOENCODING=utf-8` on Windows, or it dies
+  printing its own arrow character.
+
+The report's gap table (G1-G10) was written to track the same work as the
+`TODO` markers in the source. If the report comes back, G1 (turning) and G2
+(Code 39 table) are now done, and G8 (80-column) is enforced by the build.
 
 ## Building
 
@@ -360,8 +488,10 @@ How it fits together, because it is the first thing that breaks if someone
 - `build.sh` always passes `CONSOLE=usb_cdc` and `E2U=`. The latter empties
   the port's elf2uf2 variable so no host `g++` is needed; `picotool uf2
   convert` produces the image. Toolchain, SDK and picotool are auto-detected
-  under `~/.pico-sdk` (what the VS Code Pico extension installs); only GNU
-  `make` has to be added (`winget install ezwinports.make`).
+  under `~/.pico-sdk` (what the VS Code Pico extension installs). GNU `make`
+  is the only missing piece, and on Windows `build.sh` downloads a portable
+  copy into `build/tools/` by itself the first time; `winget install
+  ezwinports.make` is the fallback if that download is blocked.
 - The kernel's `usermain()` is `WEAK_FUNC`, so `app/app_main.c` overrides it
   with no link tricks. The port's `app_program/` demo is simply not compiled.
 - `./build/build.sh bench=<motion|line|follow|barcode|imu|ultra|scan|telemetry>`
@@ -407,8 +537,46 @@ scales per millisecond (per-microsecond integer ticks truncate 3.205 to 3 and
 shorten every servo pulse by 6 %); every `T_CFLG` needs `iflgptn = 0`; PID
 output is clamped in 32-bit before the `int16_t` cast.
 
+## How the team works, and what they expect
+
+Standing agreements. These are preferences the team has stated, not guesses:
+
+- **Keep this file current.** Whenever anything in the repo changes - code,
+  pins, diagrams, document structure - update `SKILL.md` in the same batch of
+  work. It is the project's context file and a stale one is worse than none.
+- **Every document assumes Windows + VS Code with the Raspberry Pi Pico
+  extension**, driving the `build/*.sh` scripts through the `.vscode` tasks
+  or Git Bash. **Never route a reader through WSL**; if some step genuinely
+  cannot be done any other way, say so explicitly at that step and explain
+  why. (`build.sh` detects WSL and refuses, on purpose.)
+- **Write for someone with no C, no embedded and no Pico background.** Spell
+  out every step, explain what each piece of code is for and how it links to
+  the rest, and prefer a worked example over a summary. That is why the
+  guides are as long as they are - length is not the problem, a skipped step
+  is.
+- **Diagrams must look like the thing they describe.** The pin map is drawn
+  as the actual Robo Pico board with poster-style chips fanning out from the
+  real connectors; an earlier table-shaped version was rejected. Keep that
+  style, and keep unused parts of the board out of the mapping (the MAKER
+  port is drawn but deliberately carries no chip).
+- **Finish by committing and pushing** to `main` on
+  `Dysteriaaaa/INF2004-IS07-AutonomousRoboCar`, unless told otherwise.
+  Buddies work on `buddyN/<topic>` branches and merge through pull requests;
+  pull before starting so you are not editing three-week-old files.
+
+Two mechanical traps that cost real time in past sessions:
+
+- **Do not write multi-line patch scripts in a bash heredoc.** Backslash
+  escapes and non-ASCII characters get mangled on the way through. Write the
+  script to a file (in the scratchpad) with the file-writing tool and run it.
+- **Never `git checkout -- .` inside `external/mtk3smp-rp2040`.** It reverts
+  the makefile hook that `build/setup.sh` installed and the next build quietly
+  compiles the port's demo instead of this car. Re-run `./build/setup.sh`.
+
 ## When helping on this project
 
+- **Read `git log` first.** Several people commit to this repo between
+  sessions; assume the tree has moved since whatever you last remember.
 - Check `docs/HARDWARE.md` before suggesting a pin.
 - Before adding an ISR, read the interrupt rule above and follow the
   record-and-flag pattern.
@@ -416,6 +584,10 @@ output is clamped in 32-bit before the `int16_t` cast.
   collision.
 - Prefer integer and fixed-point maths. There is no FPU, and a soft-float
   `atan2` at 100 Hz costs thousands of cycles.
-- Verify with `./build/build.sh && ./build/build.sh smp`. Both must stay at zero warnings.
+- Verify with `./build/build.sh && ./build/build.sh smp`. Both must stay at
+  zero warnings, and the 80-column check must stay silent.
 - The `TODO` markers are the graded work. Help reason about them rather than
   filling them in silently; if you do implement one, say clearly that you have.
+- Keep the three-document split (`TEAM_GUIDE.md` / `docs/buddyN-*/` /
+  `BUILD.md`) intact, and update all three when a change touches shared
+  behaviour.
