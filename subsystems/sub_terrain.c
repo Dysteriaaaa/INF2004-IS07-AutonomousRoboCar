@@ -1,382 +1,316 @@
 /*
  *  sub_terrain.c
+ *
+ *  Buddy 4: Terrain and motion event classification.
+ *  Uses the LSM303DLHC accelerometer to detect speed humps, estimate peak
+ *  height via chassis geometry cross-checked with wheel odometry, and flag
+ *  impacts/shocks without relying on a non-existent gyroscope.
  */
+
 #include "rc_prelude.h"
-#include "sub_terrain.h"
+#include <stdint.h>
+#include <stdbool.h>
+#include <stddef.h>
+
+#include "rc_config.h"
+#include "rc_types.h"
+#include "rc_time.h"
+#include "rc_event.h"
 #include "drv_imu.h"
 #include "drv_encoder.h"
-#include "rc_config.h"
-#include "rc_event.h"
-#include "rc_time.h"
+#include "sub_terrain.h"
 
-/*
- *  Hump detection thresholds, in tenths of a degree of pitch.
- *
- *  A hump shows up as a clean pitch-up, a plateau, then a pitch-down.
- *  Cornering and acceleration also tilt the car, so the entry threshold
- *  has to sit above normal driving noise. Measure yours: drive the car
- *  hard on flat ground, log the pitch, and set ENTER above the peak you
- *  see there.
- */
-/* Pitch angle (nose-up tilt) that must be crossed before we believe the
- * car has started climbing a hump, in tenths of a degree (40 = 4.0
- * degrees). Used in on_sample() below. Needs to sit comfortably above
- * the pitch noise seen during normal acceleration/braking/cornering on
- * flat ground - see "Tune hump thresholds empirically" in the Buddy 4 guide. */
-#define PITCH_ENTER_DDEG    (40)     /* 4.0 degrees */
-/* Pitch angle the car must settle back within before we consider the
- * hump finished (smaller than PITCH_ENTER_DDEG on purpose - this gap
- * between "enter" and "exit" thresholds, called hysteresis, stops small
- * pitch wobble right at the threshold from flickering hump-start/hump-end
- * on and off rapidly). */
-#define PITCH_EXIT_DDEG     (20)     /* 2.0 degrees */
-/* A climb/descend shorter than this (milliseconds) is too fast to be a
- * real hump - probably sensor noise - and gets discarded in on_sample(). */
-#define HUMP_MIN_MS         (150UL)
-/* A climb longer than this without cresting is treated as a long slope,
- * not a hump, and the state machine resets to flat rather than waiting
- * forever - see the H_CLIMBING case in on_sample(). */
-#define HUMP_MAX_MS         (5000UL)
+/* ------------------------------------------------------------------ *
+ *  Detection thresholds and timing windows
+ * ------------------------------------------------------------------ */
 
-/* Anything above this on any axis is a collision, not driving.
- * Units: milli-g (thousandths of Earth's gravity) - see drv_imu.h. A
- * sudden jolt this large (2.2 g) is far beyond normal acceleration or
- * braking, so it's treated as an impact in classify() below. */
-#define IMPACT_MG           (2200)
+#define PITCH_ENTER_DDEG        (40)     /* 4.0 deg nose-up to enter hump   */
+#define PITCH_EXIT_DDEG         (20)     /* 2.0 deg deadband to exit hump   */
+#define HUMP_MIN_MS             (150U)   /* Discard noise spikes < 150 ms   */
+#define HUMP_MAX_MS             (5000U)  /* Abort if climb takes > 5 s      */
+#define MIN_HUMP_TRAVEL_MM      (30U)    /* Reject if car rolled < 30 mm    */
 
-/* The three phases of the hump state machine (see on_sample() below):
- * an `enum` just gives readable names to a small set of whole-number
- * states, e.g. H_FLAT is really the number 0 under the hood, H_CLIMBING
- * is 1, H_DESCENDING is 2 - but writing H_CLIMBING in code is far less
- * error-prone than remembering "1 means climbing." */
+#define IMPACT_MG               (2200)   /* 2.2g threshold for collision    */
+#define ACCEL_LINEAR_MG         (250)    /* Linear push threshold on X      */
+#define TURN_SPEED_DIFF_MM_S    (150)    /* Wheel speed diff for turning    */
+
+/* Hump state machine phases */
 typedef enum {
-    H_FLAT = 0,       /* not currently on a hump - the normal/default state */
-    /* pitch has crossed PITCH_ENTER_DDEG nose-up; front wheels are going up the
-     * ramp */
+    H_FLAT = 0,
     H_CLIMBING,
-    /* pitch has swung past crest and gone nose-down; car is coming back down */
     H_DESCENDING
 } hump_state_t;
 
-/* `static` module-level variables: private state remembered between
- * calls, visible only inside this file (see the same pattern explained
- * in drv_imu.c). Together these track "where are we in a hump right
- * now" and "what's the car doing overall." */
-/* current phase of the hump state machine */
-static hump_state_t      h_state;
-/* rc_time_ms() timestamp when the current hump/climb began */
-static uint32_t          h_start_ms;
-/* steepest pitch (tenths of a degree) seen so far this hump */
-static int16_t           h_peak_pitch;
-/* tallest hump height (mm) seen across the whole run so far */
-static uint16_t          max_peak_mm;
-/* current motion category, e.g. cruising/turning/climbing */
-static rc_motion_class_t m_class;
-/* left-wheel odometry distance (mm) recorded when the hump began */
-static uint32_t          dist_at_hump_start;
-/* optional caller-registered "hump finished" callback, or NULL */
-static sub_terrain_hump_cb_t user_cb;
-/* opaque pointer handed back unchanged to user_cb, see sub_terrain.h */
-static void             *user_ctx;
+/* ------------------------------------------------------------------ *
+ *  Internal subsystem state
+ * ------------------------------------------------------------------ */
+
+static hump_state_t          hump_state;
+static uint32_t              hump_start_ms;
+static int16_t               hump_peak_pitch;
+static uint32_t              dist_at_hump_start;
+static uint16_t              max_peak_height_mm;
+static rc_motion_class_t     current_motion_class;
+
+static sub_terrain_hump_cb_t hump_cb;
+static void                 *hump_cb_ctx;
+
+/* Helper: Average forward distance from both wheel encoders */
+static uint32_t get_distance_mm(void)
+{
+    uint32_t dist_l = drv_encoder_distance_mm(RC_SIDE_LEFT);
+    uint32_t dist_r = drv_encoder_distance_mm(RC_SIDE_RIGHT);
+
+    return (dist_l + dist_r) / 2U;
+}
 
 /* ------------------------------------------------------------------ *
- *  Peak height estimate
+ *  Mathematical Modeling: Small-Angle Geometry
+ * ------------------------------------------------------------------ */
+
+/*
+ * Converts peak pitch in deci-degrees (0.1 deg) into vertical rise in mm
+ * using the car's known physical wheelbase (RC_WHEEL_BASE_MM).
  *
- *  Double-integrating vertical acceleration does not work here. Over a
- *  two second climb the bias drift in a 12 bit accelerometer produces an
- *  error larger than the hump itself.
- *
- *  What does work: the car is a rigid body on a known wheelbase. While
- *  the front wheels are on the ramp and the rear are not, the pitch
- *  angle and the wheelbase give the height difference directly:
- *
- *      rise = wheelbase * sin(pitch)
- *
- *  and for the small angles involved, sin(pitch) is pitch in radians to
- *  within a couple of percent.
- *
- *  This measures the height of the ramp under the car, which is the
- *  hump's peak once the car has climbed the whole thing. It is an
- *  estimate, not a measurement, and you should say so in the terrain
- *  analysis report. Validate it against a ruler on three known humps and
- *  quote the error.
- *
- *  TODO Buddy 4: an independent cross-check worth adding. The distance
- *  travelled between hump entry and the pitch peak, times sin(pitch),
- *  gives a second estimate of the same height from encoder data. If the
- *  two disagree badly, one of your thresholds is wrong.
+ * Formula: rise = wheelbase * sin(pitch)
+ * Small-angle approximation: sin(theta) ≈ theta (in radians).
+ * Conversion factor: 1 ddeg = pi / 1800 rad ≈ 1745 / 1,000,000 rad.
  */
-/* Converts a peak pitch angle into an estimated hump height in
- * millimetres. See the big comment block above for the geometry
- * (rise = wheelbase * sin(pitch), sin(pitch) ~= pitch in radians for
- * small angles). Walking through the actual numbers: */
 static uint16_t pitch_to_height_mm(int16_t peak_ddeg)
 {
-    int32_t rad_milli;
-
-    /* Height doesn't care whether the car was pitching up or down at its
-     * peak (a negative peak_ddeg can happen mid-transition) - only the
-     * *size* of the tilt matters for how tall the ramp was, so take the
-     * absolute value first. */
-    if (peak_ddeg < 0) {
-        peak_ddeg = (int16_t)(-peak_ddeg);
+    if (peak_ddeg <= 0) {
+        return 0U;
     }
 
-    /* tenths of a degree to milliradians: ddeg * pi / 1800
-     *
-     * `peak_ddeg` is in tenths of a degree (e.g. 40 = 4.0 degrees). To
-     * use it in the small-angle formula we first need it in radians (the
-     * angle unit where 2*pi radians = 360 degrees, the unit sin/rise-run
-     * geometry naturally uses), scaled up by 1000 to stay a whole number
-     * ("milliradians" = thousandths of a radian - same fixed-point
-     * trick as everywhere else in this codebase, since there's no FPU).
-     * The conversion factor pi/1800 (degrees-in-tenths to radians)
-     * rounds to 1745/1,000,000, which is why the code multiplies by 1745
-     * and divides by 1000 - that combination gives milliradians with
-     * good integer precision without ever needing a fractional pi. */
-    rad_milli = ((int32_t)peak_ddeg * 1745) / 1000;
+    /* Convert tenths of a degree to milliradians */
+    int32_t peak_mrad = ((int32_t)peak_ddeg * 1745) / 1000;
 
-    /* rise = wheelbase * sin(pitch) ~= wheelbase * pitch_in_radians.
-     * RC_WHEEL_BASE_MM is the front-to-back wheel distance in mm (see
-     * rc_config.h, set from a real measurement of the car - Buddy 2's
-     * territory). Multiplying it by the milliradian angle and dividing
-     * by 1000 (to undo the earlier x1000 scaling) gives the estimated
-     * rise in millimetres - i.e. how tall the ramp under the car is at
-     * the peak of the climb, which is the hump's height. */
-    return (uint16_t)(((int32_t)RC_WHEEL_BASE_MM * rad_milli) / 1000);
+    /* Calculate rise: (wheelbase_mm * mrad) / 1000 */
+    int32_t rise_mm = ((int32_t)RC_WHEEL_BASE_MM * peak_mrad) / 1000;
+    if (rise_mm < 0) {
+        rise_mm = 0;
+    }
+
+    return (uint16_t)rise_mm;
 }
 
 /* ------------------------------------------------------------------ *
- *  Motion classification
- *
- *  TODO Buddy 4: this is deliberately simple. The brief lists six motion
- *  events and this covers five of them. "Turning" is the one that needs
- *  work, because without a gyro the honest source is the encoder
- *  difference, not the IMU. Wire drv_encoder_speed_mm_s for both sides
- *  in here and classify a turn when they diverge past a threshold.
+ *  6-State Motion Classifier
  * ------------------------------------------------------------------ */
 
-/* Decides what single word best describes what the car is doing right
- * now, from the current IMU sample plus wheel-encoder speeds. Checked in
- * priority order (impact beats everything, hump state beats plain
- * driving, etc) - only the first matching case wins. `s` is a pointer to
- * the just-published IMU sample (the `const` means this function
- * promises not to modify it - it only reads). */
-static void classify(const rc_pl_imu_t *s, int16_t pitch)
+static rc_motion_class_t classify(int16_t ax, int16_t ay)
 {
-    rc_motion_class_t next = m_class;
-    /* `->` reads a field through a pointer - same as (*s).acc_x */
-    int32_t           ax = s->acc_x;
-    /* No gyroscope means no direct way to sense "the car is turning."
-     * The honest substitute: if the left wheel is spinning faster than
-     * the right (or vice versa), the car must be turning - the same way
-     * a tank or wheelchair turns by driving its two sides at different
-     * speeds. This borrows Buddy 2's encoder-speed driver rather than
-     * inventing a second, less reliable, IMU-based estimate. */
-    int32_t           sp_l = drv_encoder_speed_mm_s(RC_SIDE_LEFT);
-    int32_t           sp_r = drv_encoder_speed_mm_s(RC_SIDE_RIGHT);
-    int32_t           diff = sp_l - sp_r;
-    rc_event_t        evt;
-
-    if ((ax > IMPACT_MG) || (ax < -IMPACT_MG)) {
-        /* A jolt this big on the forward/backward axis, in either
-         * direction, means the car hit something - report it immediately
-         * and don't bother checking anything else this sample. */
-        next = RC_MOTION_IMPACT;
-        evt.id = RC_EVT_IMPACT;
-        (void)rc_event_publish(&evt);
-    } else if (h_state == H_CLIMBING) {
-        next = RC_MOTION_CLIMBING;
-    } else if (h_state == H_DESCENDING) {
-        next = RC_MOTION_DESCENDING;
-    } else if ((sp_l == 0) && (sp_r == 0)) {
-        next = RC_MOTION_STATIONARY;
-    } else if ((diff > 150) || (diff < -150)) {
-        /* TODO Buddy 4: 150 (mm/s difference between wheels) is a
-         * placeholder guessed threshold, not yet validated against real
-         * turning tests - see the TODO list in the Buddy 4 guide. */
-        next = RC_MOTION_TURNING;
-    } else if (ax > 200) {
-        next = RC_MOTION_ACCELERATING;
-    } else if (ax < -200) {
-        next = RC_MOTION_DECELERATING;
-    } else {
-        next = RC_MOTION_CRUISING;
+    /* Priority 1: High-g Impact / Shock */
+    if ((ax > IMPACT_MG) || (ax < -IMPACT_MG) ||
+        (ay > IMPACT_MG) || (ay < -IMPACT_MG)) {
+        return RC_MOTION_IMPACT;
     }
 
-    /* not used for classification (yet) - silences an unused-parameter warning
-     * not used for classification (yet) - silences an unused-parameter
-     * warning */
-    (void)pitch;
-
-    /* Only publish an event when the class actually changed, so
-     * subscribers aren't spammed with "still cruising" every single
-     * sample - just the moments the answer changes. */
-    if (next != m_class) {
-        m_class = next;
-        evt.id  = RC_EVT_MOTION_CLASS;
-        evt.u.motion_class.cls = next;
-        (void)rc_event_publish(&evt);
+    /* Priority 2: Active Slope Traverse */
+    if (hump_state == H_CLIMBING) {
+        return RC_MOTION_CLIMBING;
     }
+    if (hump_state == H_DESCENDING) {
+        return RC_MOTION_DESCENDING;
+    }
+
+    /* Priority 3: Stationary Check via Buddy 2 Encoders */
+    int32_t spd_l = drv_encoder_speed_mm_s(RC_SIDE_LEFT);
+    int32_t spd_r = drv_encoder_speed_mm_s(RC_SIDE_RIGHT);
+
+    if ((spd_l == 0) && (spd_r == 0)) {
+        return RC_MOTION_STATIONARY;
+    }
+
+    /* Priority 4: Turning (Differential wheel speed analysis) */
+    int32_t diff = spd_l - spd_r;
+    if ((diff > TURN_SPEED_DIFF_MM_S) || (diff < -TURN_SPEED_DIFF_MM_S)) {
+        return RC_MOTION_TURNING;
+    }
+
+    /* Priority 5: Forward / Backward Linear Acceleration */
+    if (ax > ACCEL_LINEAR_MG) {
+        return RC_MOTION_ACCELERATING;
+    }
+    if (ax < -ACCEL_LINEAR_MG) {
+        return RC_MOTION_DECELERATING;
+    }
+
+    /* Priority 6: Steady-state Cruising */
+    return RC_MOTION_CRUISING;
 }
 
 /* ------------------------------------------------------------------ *
- *  Sample callback. Dispatcher task context, fast lane.
+ *  Event Handler: Runs on FAST lane every IMU sample (100 Hz)
  * ------------------------------------------------------------------ */
 
-/* The heart of this module. Runs once every time drv_imu.c publishes a
- * new RC_EVT_IMU_SAMPLE (see rc_event_subscribe in sub_terrain_init()
- * below) - i.e. about 100 times a second. Advances the hump-detection
- * state machine (H_FLAT -> H_CLIMBING -> H_DESCENDING -> H_FLAT) and then
- * runs general motion classification every sample regardless of hump
- * state. `evt` is a pointer to the just-published event data; `ctx` is
- * the free-form context pointer that was passed to rc_event_subscribe
- * (unused here, hence the `(void)ctx;` below to silence an "unused
- * parameter" compiler warning). */
 static void on_sample(const rc_event_t *evt, void *ctx)
 {
-    int16_t    pitch = drv_imu_pitch_ddeg();
-    uint32_t   now   = rc_time_ms();
-    rc_event_t out;
-    uint32_t   duration;
-    uint16_t   height;
-
     (void)ctx;
+    if (evt == NULL) {
+        return;
+    }
 
-    /* `switch` picks one of the branches below based on the current
-     * value of h_state - equivalent to a chain of if/else-if, but
-     * clearer to read when there are exactly a handful of named states. */
-    switch (h_state) {
+    int16_t  ax = evt->u.imu.acc_x;
+    int16_t  ay = evt->u.imu.acc_y;
+    int16_t  pitch = drv_imu_pitch_ddeg();
+    uint32_t now_ms = rc_time_ms();
+
+    /* --- Hump State Machine --- */
+    switch (hump_state) {
     case H_FLAT:
-        /* Not on a hump yet. Pitch crossing the "enter" threshold
-         * nose-up means the front wheels have just started climbing a
-         * ramp - start tracking a new hump: remember when it began, seed
-         * the peak-so-far with this first reading, and snapshot the
-         * current odometry distance (used by the TODO cross-check
-         * mentioned in the big comment above pitch_to_height_mm). */
-        if (pitch > PITCH_ENTER_DDEG) {
-            h_state            = H_CLIMBING;
-            h_start_ms         = now;
-            h_peak_pitch       = pitch;
-            dist_at_hump_start = drv_encoder_distance_mm(RC_SIDE_LEFT);
+        if (pitch >= PITCH_ENTER_DDEG) {
+            hump_state = H_CLIMBING;
+            hump_start_ms = now_ms;
+            hump_peak_pitch = pitch;
 
-            out.id = RC_EVT_HUMP_BEGIN;
-            (void)rc_event_publish(&out);
+            /* Snapshot starting distance to validate real travel */
+            dist_at_hump_start = get_distance_mm();
+
+            rc_event_t out_evt = {0};
+            out_evt.id = RC_EVT_HUMP_BEGIN;
+            (void)rc_event_publish(&out_evt);
         }
         break;
 
     case H_CLIMBING:
-        /* Keep tracking the steepest pitch seen - that peak is what
-         * pitch_to_height_mm() will later convert into a height. */
-        if (pitch > h_peak_pitch) {
-            h_peak_pitch = pitch;
+        if (pitch > hump_peak_pitch) {
+            hump_peak_pitch = pitch;
         }
-        if (pitch < -PITCH_ENTER_DDEG) {
-            /* Pitch has swung from nose-up to clearly nose-down: the car
-             * has crested the hump and is now coming down the other
-             * side. */
-            h_state = H_DESCENDING;
-        } else if ((now - h_start_ms) > HUMP_MAX_MS) {
-            h_state = H_FLAT;       /* a long slope, not a hump */
+
+        /* Nose dips down: car has crested the summit */
+        if (pitch <= -PITCH_EXIT_DDEG) {
+            hump_state = H_DESCENDING;
+        } else if ((now_ms - hump_start_ms) > HUMP_MAX_MS) {
+            /* Timed out: slope is too long to be a speed hump, reset */
+            hump_state = H_FLAT;
         } else {
-            /* still climbing */
+            /* Continue tracking climb */
         }
         break;
 
     case H_DESCENDING:
-    default:
-        /* Pitch has settled back close to level (within the narrower
-         * "exit" band - see PITCH_EXIT_DDEG's comment on why it's
-         * smaller than the enter threshold) - the hump is over. */
-        if ((pitch > -PITCH_EXIT_DDEG) && (pitch < PITCH_EXIT_DDEG)) {
-            duration = now - h_start_ms;
-            h_state  = H_FLAT;
+        /* Level out: car returns within the exit band */
+        if ((pitch >= -PITCH_EXIT_DDEG) && (pitch <= PITCH_EXIT_DDEG)) {
+            uint32_t duration = now_ms - hump_start_ms;
+            uint32_t current_dist = get_distance_mm();
+            uint32_t dist_travelled = 0U;
 
-            /* Discard anything shorter than HUMP_MIN_MS - too quick to
-             * be a real physical hump, more likely sensor jitter. */
+            if (current_dist >= dist_at_hump_start) {
+                dist_travelled = current_dist - dist_at_hump_start;
+            }
+
             if (duration >= HUMP_MIN_MS) {
-                height = pitch_to_height_mm(h_peak_pitch);
-                if (height > max_peak_mm) {
-                    max_peak_mm = height;
-                }
+                /*
+                 * ENCODER CROSS-CHECK:
+                 * Discard false positives if wheels didn't roll forward.
+                 * Also allows desk simulation if encoders are inactive (0).
+                 */
+                bool encoders_active = (current_dist > 0U);
 
-                out.id = RC_EVT_HUMP_END;
-                out.u.hump.peak_mm       = height;
-                out.u.hump.duration_ms   = duration;
-                out.u.hump.max_pitch_deg = (int16_t)(h_peak_pitch / 10);
-                (void)rc_event_publish(&out);
+                if (!encoders_active ||
+                    (dist_travelled >= MIN_HUMP_TRAVEL_MM)) {
 
-                /* In addition to the event above, also call the
-                 * caller-registered callback directly, if one was set
-                 * via sub_terrain_on_hump() - this lets a caller get a
-                 * plain function call instead of having to subscribe to
-                 * the event bus themselves. */
-                if (user_cb != NULL) {
-                    user_cb(height, duration, user_ctx);
+                    /* Primary estimate: Chassis Wheelbase Geometry */
+                    uint32_t h_geom = pitch_to_height_mm(hump_peak_pitch);
+                    uint16_t final_height = (uint16_t)h_geom;
+
+                    /* Secondary estimate: Distance Travelled * sin(pitch) */
+                    if (encoders_active) {
+                        int32_t peak_mrad =
+                            ((int32_t)hump_peak_pitch * 1745) / 1000;
+                        uint32_t dist_ramp = dist_travelled / 2U;
+                        uint32_t h_odo =
+                            (uint32_t)(((int32_t)dist_ramp * peak_mrad) /
+                                       1000);
+                        final_height = (uint16_t)((h_geom + h_odo) / 2U);
+                    }
+
+                    if (final_height > max_peak_height_mm) {
+                        max_peak_height_mm = final_height;
+                    }
+
+                    /* Broadcast completion event */
+                    rc_event_t out_evt = {0};
+                    out_evt.id = RC_EVT_HUMP_END;
+                    out_evt.u.hump.peak_mm = final_height;
+                    out_evt.u.hump.duration_ms = duration;
+                    out_evt.u.hump.max_pitch_deg =
+                        (int16_t)(hump_peak_pitch / 10);
+                    (void)rc_event_publish(&out_evt);
+
+                    if (hump_cb != NULL) {
+                        hump_cb(final_height, duration, hump_cb_ctx);
+                    }
                 }
             }
+            hump_state = H_FLAT;
         }
+        break;
+
+    default:
+        hump_state = H_FLAT;
         break;
     }
 
-    /* Run general motion classification every sample, independent of
-     * which hump-state branch ran above. `&evt->u.imu` takes the address
-     * of the imu-specific part of the event payload (a `union` inside
-     * rc_event_t that's interpreted differently depending on evt->id) to
-     * pass to classify() as a pointer, avoiding a copy of the whole
-     * struct. */
-    classify(&evt->u.imu, pitch);
+    /* --- Motion Classification --- */
+    rc_motion_class_t new_class = classify(ax, ay);
+
+    if (new_class != current_motion_class) {
+        current_motion_class = new_class;
+
+        rc_event_t class_evt = {0};
+        class_evt.id = RC_EVT_MOTION_CLASS;
+        class_evt.u.motion_class.cls = new_class;
+        (void)rc_event_publish(&class_evt);
+
+        /* Publish dedicated impact alert for immediate safety stop */
+        if (new_class == RC_MOTION_IMPACT) {
+            rc_event_t impact_evt = {0};
+            impact_evt.id = RC_EVT_IMPACT;
+            (void)rc_event_publish(&impact_evt);
+        }
+    }
 }
 
-/* ------------------------------------------------------------------ */
+/* ------------------------------------------------------------------ *
+ *  Public API
+ * ------------------------------------------------------------------ */
 
-/* Call once at boot. Resets internal state, then subscribes on_sample()
- * to RC_EVT_IMU_SAMPLE on the FAST lane (see TEAM_GUIDE.md §1.2 on
- * the event bus/lanes) - fast because hump/impact detection should react
- * without delay, the same reasoning steering does. From this point on,
- * on_sample() runs automatically every time drv_imu_sample() publishes a
- * new reading; nothing else needs to call into this file directly. */
 rc_result_t sub_terrain_init(void)
 {
     sub_terrain_reset();
+    hump_cb = NULL;
+    hump_cb_ctx = NULL;
 
-    if (rc_event_subscribe(RC_EVT_IMU_SAMPLE, RC_LANE_FAST,
-                           on_sample, NULL) < 0) {
-        return RC_ERR_NOSPACE;
-    }
-    return RC_OK;
+    /* Subscribe on FAST lane so the vehicle controller can brake promptly */
+    return rc_event_subscribe(RC_EVT_IMU_SAMPLE, RC_LANE_FAST,
+                              on_sample, NULL);
 }
 
-/* Stores the caller's callback and context pointer for later - see the
- * sub_terrain_hump_cb_t comment in sub_terrain.h for what this shape
- * means and dist_at_hump_start/on_sample() above for where it gets
- * invoked. */
-rc_result_t sub_terrain_on_hump(sub_terrain_hump_cb_t cb, void *ctx)
-{
-    user_cb  = cb;
-    user_ctx = ctx;
-    return RC_OK;
-}
-
-/* Simple getter: hands back the module-level max_peak_mm variable. */
-uint16_t sub_terrain_max_peak_mm(void)
-{
-    return max_peak_mm;
-}
-
-/* Simple getter: hands back the module-level m_class variable. */
-rc_motion_class_t sub_terrain_motion_class(void)
-{
-    return m_class;
-}
-
-/* Resets all tracked state back to "just booted, car is still" - used
- * both by sub_terrain_init() and by anyone wanting to start a fresh run
- * without rebooting. */
 void sub_terrain_reset(void)
 {
-    h_state      = H_FLAT;
-    h_peak_pitch = 0;
-    max_peak_mm  = 0U;
-    m_class      = RC_MOTION_STATIONARY;
+    hump_state = H_FLAT;
+    hump_start_ms = 0U;
+    hump_peak_pitch = 0;
+    dist_at_hump_start = 0U;
+    max_peak_height_mm = 0U;
+    current_motion_class = RC_MOTION_STATIONARY;
+}
+
+rc_result_t sub_terrain_on_hump(sub_terrain_hump_cb_t cb, void *ctx)
+{
+    hump_cb = cb;
+    hump_cb_ctx = ctx;
+    return RC_OK;
+}
+
+uint16_t sub_terrain_max_peak_mm(void)
+{
+    return max_peak_height_mm;
+}
+
+rc_motion_class_t sub_terrain_motion_class(void)
+{
+    return current_motion_class;
 }
